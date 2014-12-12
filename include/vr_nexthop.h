@@ -26,6 +26,7 @@ enum nexthop_type {
     NH_DISCARD,
     NH_COMPOSITE,
     NH_VRF_TRANSLATE,
+    NH_L2_RCV,
     NH_MAX,
 };
 
