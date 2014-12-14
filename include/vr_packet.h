@@ -320,6 +320,8 @@ struct vr_ip {
     unsigned int ip_daddr;
 } __attribute__((packed));
 
+#define VR_IP6_ADDRESS_LEN      16
+
 struct vr_ip6 {
 #ifdef __KERNEL__
 #if defined(__LITTLE_ENDIAN_BITFIELD)
@@ -346,11 +348,11 @@ struct vr_ip6 {
                ip6_flow:20;
 #endif
 #endif
-    unsigned short  ip6_plen;        /* payload length */
-    unsigned char   ip6_nxt;         /* next header */
-    unsigned char   ip6_hlim;        /* hop limit */
-    unsigned char ip6_src[16];       /* source address */
-    unsigned char ip6_dst[16];       /* destination address */
+    unsigned short  ip6_plen;
+    unsigned char   ip6_nxt;
+    unsigned char   ip6_hlim;
+    unsigned char ip6_src[VR_IP6_ADDRESS_LEN];
+    unsigned char ip6_dst[VR_IP6_ADDRESS_LEN];
 } __attribute__((packed));
 
 #define MCAST_IP                        (0xE0000000)
@@ -558,6 +560,18 @@ struct vr_icmp {
 } __attribute__((packed));
 
 static inline bool
+vr_icmp_echo(struct vr_icmp *icmph)
+{
+    uint8_t type = icmph->icmp_type;
+
+    if ((type == VR_ICMP_TYPE_ECHO) ||
+            (type == VR_ICMP_TYPE_ECHO_REPLY))
+        return true;
+
+    return false;
+}
+
+static inline bool
 vr_icmp_error(struct vr_icmp *icmph)
 {
     uint8_t type = icmph->icmp_type;
@@ -652,6 +666,7 @@ struct vr_forwarding_md {
     uint32_t fmd_outer_src_ip;
     uint16_t fmd_vlan;
     uint16_t fmd_udp_src_port;
+    uint8_t fmd_to_me;
 };
 
 static inline void
@@ -665,6 +680,7 @@ vr_init_forwarding_md(struct vr_forwarding_md *fmd)
     fmd->fmd_outer_src_ip = 0;
     fmd->fmd_vlan = 4096;
     fmd->fmd_udp_src_port = 0;
+    fmd->fmd_to_me = 0;
     return;
 }
 

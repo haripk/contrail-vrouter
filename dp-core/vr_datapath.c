@@ -329,6 +329,46 @@ vr_my_pkt(unsigned char *pkt_mac, struct vr_interface *vif)
     return false;
 }
 
+unsigned int
+vr_reinject_packet(struct vr_packet *pkt, struct vr_forwarding_md *fmd)
+{
+    int handled;
+    unsigned short pull_len;
+    struct vr_nexthop *nh;
+    struct vr_interface *vif = pkt->vp_if;
+
+    vr_printf("%s: from %d in vrf %d to me %d type %d data %d network %d\n",
+            __FUNCTION__, pkt->vp_if->vif_idx, fmd->fmd_dvrf,  fmd->fmd_to_me,
+            pkt->vp_type, pkt->vp_data, pkt->vp_network_h);
+
+    nh = pkt->vp_nh;
+    if (nh) {
+        return nh->nh_reach_nh(fmd->fmd_dvrf, pkt, nh, fmd);
+    }
+
+    if (fmd->fmd_to_me) {
+        handled = vr_l3_input(fmd->fmd_dvrf, pkt, fmd);
+        if (handled)
+            return 0;
+    }
+
+    if (vif_is_virtual(vif)) {
+        pull_len = pkt_get_network_header_off(pkt) - pkt_head_space(pkt);
+        if (pkt_push(pkt, pull_len)) {
+            handled = vr_l2_input(fmd->fmd_dvrf, pkt, fmd);
+            if (handled)
+                return 0;
+        }
+    } else {
+        if (fmd->fmd_label)
+            return vr_bridge_input(vif->vif_router, fmd->fmd_dvrf, pkt, fmd);
+    }
+
+    vif_drop_pkt(vif, pkt, 1);
+
+    return 0;
+}
+
 /*
  * vr_interface_input() is invoked if a packet ingresses an interface.
  * This function demultiplexes the packet to right input
@@ -346,6 +386,7 @@ vr_virtual_input(unsigned short vrf, struct vr_interface *vif,
 
     vr_init_forwarding_md(&fmd);
     fmd.fmd_vlan = vlan_id;
+    fmd.fmd_dvrf = vrf;
 
     if (vif->vif_flags & VIF_FLAG_MIRROR_RX) {
         fmd.fmd_dvrf = vif->vif_vrf;
@@ -358,6 +399,8 @@ vr_virtual_input(unsigned short vrf, struct vr_interface *vif,
     }
 
     my_pkt = vr_my_pkt(data, vif);
+    if (my_pkt)
+        fmd.fmd_to_me = 1;
 
     pull_len = pkt_get_network_header_off(pkt) - pkt_head_space(pkt);
     pkt_pull(pkt, pull_len);
@@ -373,8 +416,11 @@ vr_virtual_input(unsigned short vrf, struct vr_interface *vif,
         }
     }
 
+    if (!vr_flow_forward(vif->vif_router, vrf, pkt, &fmd))
+        return 0;
+
     if (my_pkt) {
-        handled = vr_l3_input(vrf, pkt, &fmd);
+        handled = vr_l3_input(fmd.fmd_dvrf, pkt, &fmd);
         if (handled)
             return 0;
     }
@@ -402,10 +448,14 @@ vr_fabric_input(struct vr_interface *vif, struct vr_packet *pkt,
         return 0;
     }
 
+    if (pkt->vp_type == VP_TYPE_IP6)
+        return vif_xconnect(vif, pkt);
+
     pull_len = pkt_get_network_header_off(pkt) - pkt_head_space(pkt);
 
     vr_init_forwarding_md(&fmd);
     fmd.fmd_vlan = vlan_id;
+    fmd.fmd_dvrf = vif->vif_vrf;
 
     pkt_pull(pkt, pull_len);
     handled = vr_l3_input(vif->vif_vrf, pkt, &fmd);
@@ -423,10 +473,10 @@ vr_l3_input(unsigned short vrf, struct vr_packet *pkt,
     struct vr_interface *vif = pkt->vp_if;
 
     if (pkt->vp_type == VP_TYPE_IP) {
-        vr_flow_inet_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP, fmd);
+        vr_ip_input(vif->vif_router, vrf, pkt, fmd);
         return 1;
     } else if (pkt->vp_type == VP_TYPE_IP6) {
-         vr_flow_inet6_input(vif->vif_router, vrf, pkt, VR_ETH_PROTO_IP6, fmd);
+         vr_ip6_input(vif->vif_router, vrf, pkt, fmd);
          return 1;
     } else if (pkt->vp_type == VP_TYPE_ARP) {
         return vr_arp_input(vrf, pkt, fmd);
