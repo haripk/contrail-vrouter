@@ -27,14 +27,22 @@ struct rtable_fspec;
 
 struct vr_route_req {
     vr_route_req        rtr_req;
-    struct vr_nexthop   *rtr_nh;
+    union {
+        struct vr_nexthop   *rre_nh;
+        unsigned long rre_bridge_index;
+    } route_req_entry;
 };
+
+#define rtr_nh  route_req_entry.rre_nh
+#define rtr_bridge_index route_req_entry.rre_bridge_index
 
 struct vr_vrf_stats {
     uint64_t vrf_discards;
     uint64_t vrf_resolves;
     uint64_t vrf_receives;
+    uint64_t vrf_l2_receives;
     uint64_t vrf_ecmp_composites;
+    uint64_t vrf_vrf_translates;
     uint64_t vrf_encap_composites;
     uint64_t vrf_evpn_composites;
     uint64_t vrf_l3_mcast_composites;
@@ -48,6 +56,18 @@ struct vr_vrf_stats {
     uint64_t vrf_encaps;
     uint64_t vrf_gros;
     uint64_t vrf_diags;
+    uint64_t vrf_vxlan_tunnels;
+    uint64_t vrf_arp_virtual_proxy;
+    uint64_t vrf_arp_virtual_stitch;
+    uint64_t vrf_arp_virtual_flood;
+    uint64_t vrf_arp_physical_stitch;
+    uint64_t vrf_arp_tor_proxy;
+    uint64_t vrf_arp_physical_flood;
+    uint64_t vrf_rcv_arp_responses;
+    uint64_t vrf_resolve_arp_responses;
+    uint64_t vrf_encap_arp_responses;
+    uint64_t vrf_tunnel_arp_responses;
+    uint64_t vrf_drop_arp_responses;
 };
 
 struct vr_route {
@@ -65,7 +85,7 @@ struct vr_route {
 struct vr_rtable {
     int (*algo_add)(struct vr_rtable *, struct vr_route_req *);
     int (*algo_del)(struct vr_rtable *, struct vr_route_req *);
-    struct vr_nexthop *(*algo_lookup)(unsigned int, struct vr_route_req *,
+    bool (*algo_lookup)(unsigned int, struct vr_route_req *,
             struct vr_packet *);
     int (*algo_get)(unsigned int, struct vr_route_req *);
     int (*algo_dump)(struct vr_rtable *, struct vr_route_req *);
@@ -99,7 +119,7 @@ extern void vr_fib_exit(struct vrouter *, bool);
 extern int vr_route_add(vr_route_req *);
 extern struct vr_nexthop *(*vr_inet_route_lookup)(unsigned int,
                struct vr_route_req *, struct vr_packet *);
-
+extern int (*vr_inet_route_get)(unsigned int, struct vr_route_req *);
 
 #ifdef __cplusplus
 }

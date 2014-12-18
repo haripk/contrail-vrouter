@@ -777,7 +777,8 @@ vr_flow_forward(struct vrouter *router, unsigned short vrf,
 {
     flow_result_t result;
 
-    if (pkt->vp_type == VP_TYPE_IP) {
+    if ((pkt->vp_type == VP_TYPE_IP) &&(!(pkt->vp_flags &
+                    VP_FLAG_L2_PAYLOAD))) {
         result = vr_inet_flow_lookup(router, vrf, pkt, fmd);
     } else {
         result = FLOW_FORWARD;
@@ -812,6 +813,7 @@ vr_flush_flow_queue(struct vrouter *router, struct vr_flow_entry *fe,
         pkt = pnode->pl_packet;
         if (!pkt)
             continue;
+        pnode->pl_packet = NULL;
         /* 
          * this is only a security check and not a catch all check. one note
          * of caution. please do not access pkt->vp_if till the if block is

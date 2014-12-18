@@ -11,6 +11,9 @@
 #include <vr_bridge.h>
 
 extern unsigned int vr_inet_route_flags(unsigned int, unsigned int);
+extern struct vr_vrf_stats *(*vr_inet_vrf_stats)(unsigned short,
+                                                 unsigned int);
+
 
 static inline bool
 vr_grat_arp(struct vr_arp *sarp)
@@ -29,37 +32,23 @@ vr_v6_prefix_is_ll(uint8_t prefix[])
     return false;
 }
 
-
 static int
-vr_arp_request_treatment(struct vr_interface *vif, struct vr_arp *arp)
+vr_arp_request_treatment(unsigned short vrf, struct vr_packet *pkt,
+                         struct vr_arp *arp, char *src_mac, int pkt_src,
+                         int *drop_reason)
 {
-    uint32_t rt_flags;
-    bool grat_arp = vr_grat_arp(arp);
+    struct vr_route_req rt;
+    struct vr_nexthop *nh;
+    uint32_t rt_prefix;
+    bool grat_arp;
+    struct vr_vrf_stats *stats;
+    struct vr_interface *vif = pkt->vp_if;
 
-    /*
-     * Packet from VM :
-     *       - If no source address DROP
-     *       - If L3 route exists (VR_ETH_PROTO_VLAN)ROXY
-     *       - If no L3 route FLOOD
-     *       - If no route DROP
-     *       - If GRAT ARP, ideally should be flooded to hosts behind TOR
-     *             but dropped as of now
-     *
-     * Packet from Vhost
-     *       - If to Link Local IP PROXY
-     *       - else Xconnect including GRAT
-     *
-     * Packet from Fabric
-     *       - If to Vhost IP Proxy
-     *       - If grat ARP Trap to Agent and Xconnect
-     *       - else DROP
-     *
-     * Packet from Xen or VGW, PROXY
-     */
+    stats = vr_inet_vrf_stats(vrf, pkt->vp_cpu);
 
+    *drop_reason = VP_DROP_INVALID_ARP;
     if (vif_mode_xconnect(vif))
         return PKT_ARP_XCONNECT;
-
 
     if (vif_is_virtual(vif))
         /*
@@ -71,81 +60,204 @@ vr_arp_request_treatment(struct vr_interface *vif, struct vr_arp *arp)
 
     if (vif->vif_type == VIF_TYPE_XEN_LL_HOST ||
             vif->vif_type == VIF_TYPE_GATEWAY)
-        return PKT_ARP_PROXY;
+        goto proxy;
 
+    /* All link local IP's have to be proxied */
     if (vif->vif_type == VIF_TYPE_HOST) {
         if (IS_LINK_LOCAL_IP(arp->arp_dpa))
-            return PKT_ARP_PROXY;
+            goto proxy;
     }
 
+    grat_arp = vr_grat_arp(arp);
+
+    /*
+     * Grat ARP from Fabric need to be cross connected to Vhost
+     * and Flooded Flooded if received from another compute node
+     * or BMS
+     */
     if (grat_arp && (vif->vif_type == VIF_TYPE_PHYSICAL)) {
-        return PKT_ARP_TRAP_XCONNECT;
+        if (!pkt_src)
+            return PKT_ARP_TRAP_XCONNECT;
+        else
+            return PKT_ARP_FLOOD;
     }
 
-    rt_flags = vr_inet_route_flags(vif->vif_vrf, arp->arp_dpa);
+    memset(&rt, 0, sizeof(rt));
+    rt.rtr_req.rtr_vrf_id = vrf;
+    rt.rtr_req.rtr_prefix = (uint8_t*)&rt_prefix;
+    *(uint32_t*)rt.rtr_req.rtr_prefix = (arp->arp_dpa);
+    rt.rtr_req.rtr_prefix_size = 4;
+    rt.rtr_req.rtr_prefix_len = 32;
+
+    vr_inet_route_get(vrf, &rt);
+
     if (vif_is_virtual(vif)) {
+
+        /*
+         * Grat ARP from VM need to be Trapped to Agent if Trap Set
+         * else need to be flooded
+         */
         if (grat_arp) {
-            if (rt_flags & VR_RT_ARP_TRAP_FLAG)
+            if (rt.rtr_req.rtr_label_flags & VR_RT_ARP_TRAP_FLAG)
                 return PKT_ARP_TRAP;
             else
-                return PKT_ARP_DROP;
+                return PKT_ARP_FLOOD;
         }
-        if (rt_flags & VR_RT_ARP_FLOOD_FLAG)
-            return PKT_ARP_FLOOD;
 
-        return PKT_ARP_PROXY;
+        /*
+         * Request from VM:
+         * If Proxy Bit Set -
+         *    - If stitched : Proxy with Stitched MAC
+         *    - If not stitched : Proxy with VIF's Mac
+         * If no route is found : Drop the request
+         * IF route is found and not proxied : Flood
+         *
+         */
+        if (rt.rtr_req.rtr_label_flags & VR_RT_PROXY_FLAG) {
+            if (!(rt.rtr_req.rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG)) {
+                if (stats)
+                    stats->vrf_arp_virtual_proxy++;
+                goto proxy;
+            }
+
+            if (!vr_get_bridge_entry_data_by_index(rt.rtr_req.rtr_nh_id,
+                                                       src_mac, NULL)) {
+                if (stats)
+                    stats->vrf_arp_virtual_stitch++;
+                goto stitch;
+            }
+        }
+
+        /* If there is no route found, lets drop the ARP request */
+        if ((!rt.rtr_nh) || (rt.rtr_nh->nh_type == NH_DISCARD)) {
+            *drop_reason = VP_DROP_ARP_NO_ROUTE;
+            return PKT_ARP_DROP;
+        }
+
+        if (stats)
+            stats->vrf_arp_virtual_flood++;
+        return PKT_ARP_FLOOD;
     }
-
-    if (rt_flags & VR_RT_HOSTED_FLAG)
-        return PKT_ARP_PROXY;
 
     if (vif->vif_type == VIF_TYPE_HOST)
         return PKT_ARP_XCONNECT;
 
+    /*
+     * Request from Physical:
+     * If from Fabric n/w : Proxy
+     * if Proxy bit  set:
+     *  - If the VM is hosted on this node (Encap NH) : Proxy with VM's MAC
+     *  - If from Tor, meant for DNS server (Rcv NH) : Proy with VIF's MAC
+     *  - else : Flood
+     */
+    if (vif->vif_type == VIF_TYPE_PHYSICAL) {
+        if (!pkt_src) {
+            if (rt.rtr_req.rtr_label_flags & VR_RT_PROXY_FLAG) {
+                goto proxy;
+            }
+        } else {
+            if (rt.rtr_req.rtr_label_flags & VR_RT_PROXY_FLAG) {
+                if (rt.rtr_req.rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG) {
+                    vr_get_bridge_entry_data_by_index(rt.rtr_req.rtr_nh_id,
+                                                    src_mac, &nh);
+                    if (nh) {
+                        if (nh->nh_type == NH_ENCAP) {
+                            if (stats)
+                                stats->vrf_arp_physical_stitch++;
+                            goto stitch;
+                        }
+                    }
+                } else {
+                    nh = rt.rtr_nh;
+                    if (pkt_src == PKT_SRC_TOR_REPL_TREE) {
+                        if (nh->nh_type == NH_RCV) {
+                            if (stats)
+                                stats->vrf_arp_tor_proxy++;
+                            goto proxy;
+                        }
+                    }
+                }
+            }
+            if (stats)
+                stats->vrf_arp_physical_flood++;
+            return PKT_ARP_FLOOD;
+        }
+    }
+
+    *drop_reason = VP_DROP_ARP_NO_WHERE_TO_GO;
     return PKT_ARP_DROP;
+
+proxy:
+    VR_MAC_COPY(src_mac, vif->vif_mac);
+stitch:
+    return PKT_ARP_PROXY;
 }
 
 static int
 vr_handle_arp_request(unsigned short vrf, struct vr_arp *sarp,
-                      struct vr_packet *pkt, struct vr_forwarding_md *fmd)
+                      struct vr_packet *pkt, struct vr_forwarding_md *fmd,
+                      int pkt_src)
 {
     struct vr_packet *cloned_pkt;
     struct vr_interface *vif = pkt->vp_if;
-    unsigned short *eth_proto, proto = htons(VR_ETH_PROTO_ARP),
-                   pull_tail_len = VR_ETHER_HLEN;
     struct vr_eth *eth;
     struct vr_arp *arp;
     unsigned int dpa;
-    int arp_result;
+    int arp_result, drop_reason;
     struct vr_route_req rt;
+    char arp_src_mac[VR_ETHER_ALEN];
     struct vr_nexthop *nh;
 
-    arp_result = vr_arp_request_treatment(vif, sarp);
-
+    arp_result = vr_arp_request_treatment(vrf, pkt, sarp, arp_src_mac,
+                                          pkt_src, &drop_reason);
     switch (arp_result) {
     case PKT_ARP_PROXY:
+
+        memset(&rt, 0, sizeof(rt));
+        rt.rtr_req.rtr_vrf_id = vrf;
+
+        if ((vif->vif_type == VIF_TYPE_HOST) ||
+                ((vif->vif_type == VIF_TYPE_PHYSICAL) && (!pkt_src))) {
+
+            rt.rtr_req.rtr_prefix = (uint8_t*)&dpa;
+            *(uint32_t*)rt.rtr_req.rtr_prefix = (sarp->arp_spa);
+            rt.rtr_req.rtr_prefix_size = 4;
+            rt.rtr_req.rtr_prefix_len = 32;
+
+            nh = vr_inet_route_lookup(vrf, &rt, NULL);
+            if ((!nh) || ((nh->nh_type != NH_ENCAP) &&
+                    (nh->nh_type != NH_RCV) && (nh->nh_type != NH_RESOLVE))) {
+                vr_pfree(pkt, VP_DROP_ARP_REPLY_NO_ROUTE);
+                return 1;
+            }
+        } else {
+            rt.rtr_req.rtr_mac_size = VR_ETHER_ALEN;
+            rt.rtr_req.rtr_mac = sarp->arp_sha;
+            if (!vr_bridge_lookup(vrf, &rt, pkt)) {
+                vr_pfree(pkt, VP_DROP_ARP_REPLY_NO_ROUTE);
+                return 1;
+            }
+            nh = rt.rtr_nh;
+            if ((!nh) || ((nh->nh_type != NH_ENCAP) &&
+                    (nh->nh_type != NH_TUNNEL))) {
+                vr_pfree(pkt, VP_DROP_ARP_REPLY_NO_ROUTE);
+                return 1;
+            }
+            if (rt.rtr_req.rtr_label_flags & VR_RT_LABEL_VALID_FLAG)
+                fmd->fmd_label = rt.rtr_req.rtr_label;
+        }
 
         pkt_reset(pkt);
 
         eth = (struct vr_eth *)pkt_data(pkt);
         memcpy(eth->eth_dmac, sarp->arp_sha, VR_ETHER_ALEN);
-        memcpy(eth->eth_smac, vif->vif_mac, VR_ETHER_ALEN);
-        eth_proto = &eth->eth_proto;
-        if (vif_is_vlan(vif)) {
-            if (vif->vif_ovlan_id) {
-                *eth_proto = htons(VR_ETH_PROTO_VLAN);
-                eth_proto++;
-                *eth_proto = htons(vif->vif_ovlan_id);
-                eth_proto++;
-                pull_tail_len += sizeof(struct vr_vlan_hdr);
-            }
-        }
-        memcpy(eth_proto, &proto, sizeof(proto));
+        memcpy(eth->eth_smac, arp_src_mac, VR_ETHER_ALEN);
+        eth->eth_proto = htons(VR_ETH_PROTO_ARP);
 
-        arp = (struct vr_arp *)pkt_pull_tail(pkt, pull_tail_len);
+        arp = (struct vr_arp *)pkt_pull_tail(pkt, VR_ETHER_HLEN);
 
         sarp->arp_op = htons(VR_ARP_OP_REPLY);
-        memcpy(sarp->arp_sha, vif->vif_mac, VR_ETHER_ALEN);
+        memcpy(sarp->arp_sha, arp_src_mac, VR_ETHER_ALEN);
         memcpy(sarp->arp_dha, eth->eth_dmac, VR_ETHER_ALEN);
         dpa = sarp->arp_dpa;
         memcpy(&sarp->arp_dpa, &sarp->arp_spa, sizeof(sarp->arp_dpa));
@@ -154,7 +266,7 @@ vr_handle_arp_request(unsigned short vrf, struct vr_arp *sarp,
         memcpy(arp, sarp, sizeof(*sarp));
         pkt_pull_tail(pkt, sizeof(*arp));
 
-        vif->vif_tx(vif, pkt);
+        nh->nh_arp_response(vrf, pkt, nh, fmd);
         break;
     case PKT_ARP_XCONNECT:
         vif_xconnect(vif, pkt);
@@ -172,25 +284,13 @@ vr_handle_arp_request(unsigned short vrf, struct vr_arp *sarp,
         vr_trap(pkt, vrf, AGENT_TRAP_ARP, NULL);
         break;
     case PKT_ARP_FLOOD:
-
-        memset(&rt, 0, sizeof(rt));
-        rt.rtr_req.rtr_mac_size = VR_ETHER_ALEN;
-        rt.rtr_req.rtr_mac = vr_bcast_mac;
-        rt.rtr_req.rtr_vrf_id = vrf;
-
-        nh = vr_bridge_lookup(vrf, &rt, pkt);
-        if (nh) {
-            vr_preset(pkt);
-            nh_output(vrf, pkt, nh, fmd);
-            break;
-        }
-        /* Fall through */
+        return 0;
     case PKT_ARP_DROP:
     default:
-        vr_pfree(pkt, VP_DROP_ARP_NOT_ME);
+        vr_pfree(pkt, drop_reason);
     }
 
-    return 0;
+    return 1;
 }
 
 /*
@@ -204,18 +304,14 @@ vr_handle_arp_reply(unsigned short vrf, struct vr_arp *sarp,
 {
     struct vr_interface *vif = pkt->vp_if;
     struct vr_packet *cloned_pkt;
-    unsigned int rt_flags;
 
     if (vif_mode_xconnect(vif) || vif->vif_type == VIF_TYPE_HOST)
         return vif_xconnect(vif, pkt);
 
     if (vif->vif_type != VIF_TYPE_PHYSICAL) {
         if (vif_is_virtual(vif)) {
-            rt_flags = vr_inet_route_flags(vrf, sarp->arp_dpa);
-            if (rt_flags & VR_RT_ARP_TRAP_FLAG) {
-                vr_preset(pkt);
-                return vr_trap(pkt, vrf, AGENT_TRAP_ARP, NULL);
-            }
+            vr_preset(pkt);
+            return vr_trap(pkt, vrf, AGENT_TRAP_ARP, NULL);
         }
         vr_pfree(pkt, VP_DROP_INVALID_IF);
         return 0;
@@ -273,14 +369,14 @@ vr_pkt_type(struct vr_packet *pkt, unsigned short offset)
 
 int
 vr_arp_input(unsigned short vrf, struct vr_packet *pkt,
-                            struct vr_forwarding_md *fmd)
+             struct vr_forwarding_md *fmd, int pkt_src)
 {
     struct vr_arp sarp;
 
     memcpy(&sarp, pkt_data(pkt), sizeof(struct vr_arp));
     switch (ntohs(sarp.arp_op)) {
     case VR_ARP_OP_REQUEST:
-        vr_handle_arp_request(vrf, &sarp, pkt, fmd);
+        return vr_handle_arp_request(vrf, &sarp, pkt, fmd, pkt_src);
         break;
 
     case VR_ARP_OP_REPLY:
@@ -379,10 +475,6 @@ vr_virtual_input(unsigned short vrf, struct vr_interface *vif,
                        struct vr_packet *pkt, unsigned short vlan_id)
 {
     struct vr_forwarding_md fmd;
-    unsigned char *data = pkt_data(pkt);
-    int reason, handled = 0;
-    unsigned short pull_len, overlay_len = VROUTER_L2_OVERLAY_LEN;
-    bool my_pkt;
 
     vr_init_forwarding_md(&fmd);
     fmd.fmd_vlan = vlan_id;
@@ -398,41 +490,9 @@ vr_virtual_input(unsigned short vrf, struct vr_interface *vif,
         return 0;
     }
 
-    my_pkt = vr_my_pkt(data, vif);
-    if (my_pkt)
-        fmd.fmd_to_me = 1;
-
-    pull_len = pkt_get_network_header_off(pkt) - pkt_head_space(pkt);
-    pkt_pull(pkt, pull_len);
-
-    if (pkt->vp_type == VP_TYPE_IP || pkt->vp_type == VP_TYPE_IP6) {
-        if (my_pkt)
-            overlay_len = VROUTER_OVERLAY_LEN;
-        if (vr_from_vm_mss_adj && vr_pkt_from_vm_tcp_mss_adj) {
-            if ((reason = vr_pkt_from_vm_tcp_mss_adj(pkt, overlay_len))) {
-                vr_pfree(pkt, reason);
-                return 0;
-            }
-        }
-    }
-
-    if (!vr_flow_forward(vif->vif_router, vrf, pkt, &fmd))
-        return 0;
-
-    if (my_pkt) {
-        handled = vr_l3_input(fmd.fmd_dvrf, pkt, &fmd);
-        if (handled)
-            return 0;
-    }
-
-    if (pkt_push(pkt, pull_len)) {
-        handled = vr_l2_input(vrf, pkt, &fmd);
-        if (handled)
-            return 0;
-    }
-
-    vif_drop_pkt(vif, pkt, 1);
+    vr_bridge_input(vif->vif_router, vrf, pkt, &fmd);
     return 0;
+
 }
 
 unsigned int
@@ -458,13 +518,49 @@ vr_fabric_input(struct vr_interface *vif, struct vr_packet *pkt,
     fmd.fmd_dvrf = vif->vif_vrf;
 
     pkt_pull(pkt, pull_len);
-    handled = vr_l3_input(vif->vif_vrf, pkt, &fmd);
-    if (!handled)
+    if (pkt->vp_type == VP_TYPE_IP || pkt->vp_type == VP_TYPE_IP6)
+        handled = vr_l3_input(vif->vif_vrf, pkt, &fmd);
+    else if (pkt->vp_type == VP_TYPE_ARP)
+        handled = vr_arp_input(vif->vif_vrf, pkt, &fmd, 0);
+
+    if (!handled) {
+        pkt_push(pkt, pull_len);
         return vif_xconnect(vif, pkt);
+    }
 
     return 0;
 }
 
+int
+vr_l2_input(unsigned short vrf, struct vr_packet *pkt,
+            struct vr_forwarding_md *fmd)
+{
+    struct vr_route_req rt;
+    struct vr_nexthop *nh;
+
+    rt.rtr_req.rtr_mac_size = VR_ETHER_ALEN;
+    rt.rtr_req.rtr_mac =(int8_t *) pkt_data(pkt);
+    /* If multicast L2 packet, use broadcast composite nexthop */
+    if (IS_MAC_BMCAST(rt.rtr_req.rtr_mac))
+        rt.rtr_req.rtr_mac = (int8_t *)vr_bcast_mac;
+    rt.rtr_req.rtr_vrf_id = vrf;
+
+    nh = vr_bridge_lookup(vrf, &rt, pkt);
+    if (!nh) {
+        vr_pfree(pkt, VP_DROP_L2_NO_ROUTE);
+        return 1;
+    }
+
+    /*
+     * If there is a label attached to this bridge entry add the
+     * label
+     */
+    if (rt.rtr_req.rtr_label_flags & VR_RT_LABEL_VALID_FLAG)
+        fmd->fmd_label = rt.rtr_req.rtr_label;
+
+    nh_output(vrf, pkt, nh, fmd);
+    return 1;
+}
 
 int
 vr_l3_input(unsigned short vrf, struct vr_packet *pkt,
@@ -478,113 +574,7 @@ vr_l3_input(unsigned short vrf, struct vr_packet *pkt,
     } else if (pkt->vp_type == VP_TYPE_IP6) {
          vr_ip6_input(vif->vif_router, vrf, pkt, fmd);
          return 1;
-    } else if (pkt->vp_type == VP_TYPE_ARP) {
-        return vr_arp_input(vrf, pkt, fmd);
     }
-    return 0;
-}
-
-unsigned int
-vr_l2_input(unsigned short vrf, struct vr_packet *pkt,
-            struct vr_forwarding_md *fmd)
-{
-    int pull_len;
-    struct vr_interface *vif = pkt->vp_if;
-
-
-    /* if non-vlan tagged and L3 enabled */
-    if ((fmd->fmd_vlan == VLAN_ID_INVALID) &&
-        (vif->vif_flags & VIF_FLAG_L3_ENABLED)) {
-
-        /* Go to L3 header for L3 processing */
-        pull_len = pkt_get_network_header_off(pkt) - pkt_head_space(pkt);
-        if (!pkt_pull(pkt, pull_len)) {
-            vr_pfree(pkt, VP_DROP_INVALID_PACKET);
-            return 1;
-        }
-
-        /* If Arp or L3 well known packet from Virtual VIF */
-        if ((pkt->vp_type == VP_TYPE_ARP) ||
-                (vif_is_virtual(vif) && vr_l3_well_known_packet(vrf, pkt))) {
-            if (vr_l3_input(vrf, pkt, fmd))
-                return 1;
-        }
-
-        /* Restore back the L2 headers */
-        if (!pkt_push(pkt, pull_len)) {
-            vr_pfree(pkt, VP_DROP_PULL);
-            return 1;
-        }
-    }
-
-    if (!(vif->vif_flags & VIF_FLAG_L2_ENABLED))
-        return 0;
-
-    pkt->vp_flags |= VP_FLAG_L2_PAYLOAD;
-    vr_bridge_input(pkt->vp_if->vif_router, vrf, pkt, fmd);
-    return 1;
-}
-
-
-int
-vr_tor_input(unsigned short vrf, struct vr_packet *pkt,
-        struct vr_forwarding_md *fmd)
-{
-    struct vr_route_req rt;
-    struct vr_arp *arp;
-    struct vr_interface *vif = pkt->vp_if;
-    struct vr_nexthop *nh;
-    unsigned int rt_prefix, pull_len;
-    struct vr_eth *eth;
-
-
-    if (pkt->vp_type == VP_TYPE_IP) {
-        pull_len = pkt_get_network_header_off(pkt) - pkt_head_space(pkt);
-        if (pkt_pull(pkt, pull_len) < 0) {
-            vr_pfree(pkt, VP_DROP_PULL);
-            return 1;
-        }
-        if (vr_l3_well_known_packet(vrf, pkt)) {
-            vr_trap(pkt, vrf,  AGENT_TRAP_L3_PROTOCOLS, NULL);
-            return 1;
-        }
-        pkt_push(pkt, pull_len);
-    } else if (pkt->vp_type == VP_TYPE_ARP) {
-        arp = (struct vr_arp *)pkt_network_header(pkt);
-
-        /* Dnot handle ARP reply */
-        if (arp->arp_op == VR_ARP_OP_REPLY) {
-            goto unhandled;
-        }
-
-        rt.rtr_req.rtr_vrf_id = vrf;
-        rt.rtr_req.rtr_prefix = (uint8_t *)&rt_prefix;
-        *(uint32_t*)rt.rtr_req.rtr_prefix = arp->arp_dpa;
-        rt.rtr_req.rtr_prefix_size = 4;
-        rt.rtr_req.rtr_prefix_len = 32;
-        rt.rtr_req.rtr_nh_id = 0;
-        rt.rtr_req.rtr_label_flags = 0;
-        rt.rtr_req.rtr_marker_size = 0;
-
-        nh = vr_inet_route_lookup(vrf, &rt, NULL);
-        if (!nh || nh->nh_type ==  NH_DISCARD)
-            goto unhandled;
-
-        if (rt.rtr_req.rtr_label_flags & VR_RT_HOSTED_FLAG) {
-            eth = (struct vr_eth *)pkt_data(pkt);
-            VR_MAC_COPY(eth->eth_dmac, eth->eth_smac);
-            VR_MAC_COPY(eth->eth_smac, vif->vif_mac);
-            arp->arp_op = htons(VR_ARP_OP_REPLY);
-            VR_MAC_COPY(arp->arp_dha, arp->arp_sha);
-            VR_MAC_COPY(arp->arp_sha, vif->vif_mac);
-            arp->arp_dpa = arp->arp_spa;
-            arp->arp_spa = rt_prefix;
-            vr_bridge_input(vrouter_get(0), vrf, pkt, NULL);
-            return 1;
-        }
-    }
-
-unhandled:
     return 0;
 }
 

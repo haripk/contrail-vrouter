@@ -77,7 +77,7 @@ vr_neighbor_response_type(unsigned short vrf, struct vr_packet *pkt,
     if (!nh)
         return NOT_ME;
 
-    if (rt.rtr_req.rtr_label_flags & VR_RT_HOSTED_FLAG)
+    if (rt.rtr_req.rtr_label_flags & VR_RT_PROXY_FLAG)
         return PROXY;
 
     switch (nh->nh_type) {
@@ -125,7 +125,7 @@ vr_icmp6_neighbor_input(struct vrouter *router, unsigned short vrf,
 
     case NOT_ME:
     default:
-        vr_pfree(pkt, VP_DROP_ARP_NOT_ME);
+        vr_pfree(pkt, VP_DROP_ARP_NO_WHERE_TO_GO);
         return;
     }
 

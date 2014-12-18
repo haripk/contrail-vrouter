@@ -108,6 +108,17 @@
 #define PKT_MPLS_TUNNEL_L2_MCAST        0x03
 #define PKT_MPLS_TUNNEL_L2_MCAST_EVPN   0x04
 
+
+/*
+ * Values to defaine the srouce of Multicast packet
+ */
+#define PKT_SRC_TOR_REPL_TREE      0x1
+#define PKT_SRC_INGRESS_REPL_TREE  0x2
+#define PKT_SRC_EDGE_REPL_TREE     0x4
+#define PKT_SRC_ANY_REPL_TREE      (PKT_SRC_TOR_REPL_TREE | \
+                PKT_SRC_SRC_REPL_TREE | PKT_SRC_EDGE_REPL_TREE)
+
+
 /*
  * Values to define the encap type of outgoing packet
  */
@@ -130,7 +141,7 @@
 #define VP_DROP_DISCARD                     0
 #define VP_DROP_PULL                        1
 #define VP_DROP_INVALID_IF                  2
-#define VP_DROP_ARP_NOT_ME                  3
+#define VP_DROP_ARP_NO_WHERE_TO_GO          3
 #define VP_DROP_GARP_FROM_VM                4
 #define VP_DROP_INVALID_ARP                 5
 #define VP_DROP_TRAP_NO_IF                  6
@@ -169,13 +180,17 @@
 #define VP_DROP_INVALID_VNID                39
 #define VP_DROP_FRAGMENTS                   40
 #define VP_DROP_INVALID_SOURCE              41
-#define VP_DROP_MAX                         42
+#define VP_DROP_ARP_NO_ROUTE                42
+#define VP_DROP_L2_NO_ROUTE                 43
+#define VP_DROP_ARP_REPLY_NO_ROUTE          44
+#define VP_DROP_MAX                         45
+
 
 struct vr_drop_stats {
     uint64_t vds_discard;
     uint64_t vds_pull;
     uint64_t vds_invalid_if;
-    uint64_t vds_arp_not_me;
+    uint64_t vds_arp_no_where_to_go;
     uint64_t vds_garp_from_vm;
     uint64_t vds_invalid_arp;
     uint64_t vds_trap_no_if;
@@ -214,6 +229,10 @@ struct vr_drop_stats {
     uint64_t vds_invalid_vnid;
     uint64_t vds_frag_err;
     uint64_t vds_invalid_source;
+    uint64_t vds_arp_no_route;
+    uint64_t vds_l2_no_route;
+    uint64_t vds_arp_reply_no_route;
+
 };
 
 /*

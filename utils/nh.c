@@ -151,11 +151,6 @@ nh_flags(uint16_t flags, uint8_t type, char *ptr)
             strcat(ptr, "Multicast, ");
             break;
 
-        case NH_FLAG_ENCAP_L2:
-            if (type == NH_ENCAP)
-                strcat(ptr, "L2, ");
-            break;
-
         case NH_FLAG_TUNNEL_VXLAN:
                 strcat(ptr, "Vxlan, ");
             break;

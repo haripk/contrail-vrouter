@@ -44,7 +44,10 @@ extern char vr_bcast_mac[];
 unsigned int
 vr_bridge_input(struct vrouter *, unsigned short , struct vr_packet *, 
                             struct vr_forwarding_md *);
-
+extern int vr_get_bridge_entry_data_by_index(unsigned int , unsigned char *,
+        struct vr_nexthop **);
+extern int (*vr_find_bridge_entry_index)(unsigned int, struct vr_route_req *,
+                unsigned int *);
 extern struct vr_nexthop *(*vr_bridge_lookup)(unsigned int,
         struct vr_route_req *, struct vr_packet *);
 

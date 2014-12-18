@@ -66,17 +66,17 @@ static void usage_internal(void);
 
 #define INET_FAMILY_STRING      "inet"
 #define BRIDGE_FAMILY_STRING    "bridge"
-#define INET6_FAMILY_STRING     "inet6"
+#define INET6_FAMILY_STRING      "inet6"
 
 static int
 family_string_to_id(char *fname)
 {
-    if (!strncmp(fname, INET6_FAMILY_STRING, strlen(INET6_FAMILY_STRING)))
-        return AF_INET6;
-    else if (!strncmp(fname, INET_FAMILY_STRING, strlen(INET_FAMILY_STRING)))
+    if (!strncmp(fname, INET_FAMILY_STRING, strlen(INET_FAMILY_STRING)))
         return AF_INET;
     else if (!strncmp(fname, BRIDGE_FAMILY_STRING, strlen(BRIDGE_FAMILY_STRING)))
         return AF_BRIDGE;
+    else if (!strncmp(fname, INET6_FAMILY_STRING, strlen(INET6_FAMILY_STRING)))
+        return AF_INET6;
 
     return -1;
 }
@@ -85,7 +85,7 @@ void
 vr_route_req_process(void *s_req)
 {
     int ret = 0, i;
-    int8_t addr[17];
+    int8_t addr[16];
     char flags[4];
     vr_route_req *rt = (vr_route_req *)s_req;
 
@@ -134,12 +134,12 @@ vr_route_req_process(void *s_req)
             bzero(flags, sizeof(flags));
             if (rt->rtr_label_flags & VR_RT_LABEL_VALID_FLAG)
                 strcat(flags, "L");
-            if (rt->rtr_label_flags & VR_RT_HOSTED_FLAG)
-                strcat(flags, "H");
+            if (rt->rtr_label_flags & VR_RT_PROXY_FLAG)
+                strcat(flags, "P");
             if (rt->rtr_label_flags & VR_RT_ARP_TRAP_FLAG)
                 strcat(flags, "T");
-            if (rt->rtr_label_flags & VR_RT_ARP_FLOOD_FLAG)
-                strcat(flags, "F");
+            if (rt->rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG)
+                strcat(flags, "B");
 
             printf("%5s", flags);
 
@@ -154,7 +154,14 @@ vr_route_req_process(void *s_req)
             for (i = 0; i < 8; i++)
                 printf(" ");
 
-            printf("%7d", rt->rtr_nh_id);
+            if (rt->rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG) {
+                if (rt->rtr_mac)
+                    printf("%s", ether_ntoa((struct ether_addr *)(rt->rtr_mac)));
+                else
+                    printf("-");
+            } else {
+                printf("%7d", rt->rtr_nh_id);
+            }
             printf("\n");
     } else {
         ret = printf("%s", ether_ntoa((struct ether_addr *)(rt->rtr_mac)));
@@ -250,7 +257,7 @@ vr_build_route_request(unsigned int op, int family, int8_t *prefix,
         rt_req.rtr_replace_plen = replace_plen;
 
         if (cmd_proxy_set)
-            rt_req.rtr_label_flags |= VR_RT_HOSTED_FLAG;
+            rt_req.rtr_label_flags |= VR_RT_PROXY_FLAG;
 
         if (cmd_trap_set)
             rt_req.rtr_label_flags |= VR_RT_ARP_TRAP_FLAG;
@@ -260,6 +267,11 @@ vr_build_route_request(unsigned int op, int family, int8_t *prefix,
             if (label != -1) {
                 rt_req.rtr_label = label;
                 rt_req.rtr_label_flags |= VR_RT_LABEL_VALID_FLAG;
+            }
+            if (cmd_dst_mac_set) {
+                rt_req.rtr_mac_size = 6;
+                rt_req.rtr_mac = calloc(1, 6);
+                memcpy(rt_req.rtr_mac, cmd_dst_mac, 6);
             }
         } else {
             rt_req.rtr_mac = calloc(1,6);
