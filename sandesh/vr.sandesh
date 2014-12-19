@@ -101,6 +101,7 @@ buffer sandesh vr_route_req {
    11:  i32         rtr_marker_plen;
    12:  list<byte>  rtr_mac;
    13:  i32         rtr_replace_plen;
+   14:  i32         rtr_index;
 }
 
 buffer sandesh vr_mpls_req {

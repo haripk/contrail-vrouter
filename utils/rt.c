@@ -66,17 +66,17 @@ static void usage_internal(void);
 
 #define INET_FAMILY_STRING      "inet"
 #define BRIDGE_FAMILY_STRING    "bridge"
-#define INET6_FAMILY_STRING      "inet6"
+#define INET6_FAMILY_STRING     "inet6"
 
 static int
 family_string_to_id(char *fname)
 {
-    if (!strncmp(fname, INET_FAMILY_STRING, strlen(INET_FAMILY_STRING)))
+    if (!strncmp(fname, INET6_FAMILY_STRING, strlen(INET6_FAMILY_STRING)))
+        return AF_INET6;
+    else if (!strncmp(fname, INET_FAMILY_STRING, strlen(INET_FAMILY_STRING)))
         return AF_INET;
     else if (!strncmp(fname, BRIDGE_FAMILY_STRING, strlen(BRIDGE_FAMILY_STRING)))
         return AF_BRIDGE;
-    else if (!strncmp(fname, INET6_FAMILY_STRING, strlen(INET6_FAMILY_STRING)))
-        return AF_INET6;
 
     return -1;
 }
@@ -85,7 +85,7 @@ void
 vr_route_req_process(void *s_req)
 {
     int ret = 0, i;
-    int8_t addr[16];
+    int8_t addr[17];
     char flags[4];
     vr_route_req *rt = (vr_route_req *)s_req;
 

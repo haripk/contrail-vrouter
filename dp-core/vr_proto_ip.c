@@ -13,9 +13,6 @@
 #include "vr_ip_mtrie.h"
 #include "vr_fragment.h"
 
-extern struct vr_nexthop *(*vr_inet_route_lookup)(unsigned int,
-                struct vr_route_req *, struct vr_packet *);
-
 static unsigned short vr_ip_id;
 
 unsigned short
@@ -57,7 +54,7 @@ vr_inet_src_lookup(unsigned short vrf, struct vr_ip *ip, struct vr_packet *pkt)
     rt.rtr_req.rtr_marker_size = 0;
     rt.rtr_req.rtr_nh_id = 0;
 
-    nh = vr_inet_route_lookup(vrf, &rt, pkt);
+    nh = vr_inet_route_lookup(vrf, &rt);
 
     return nh;
 }
@@ -236,7 +233,7 @@ vr_forward(struct vrouter *router, unsigned short vrf,
     rt.rtr_req.rtr_nh_id = 0;
     rt.rtr_req.rtr_marker_size = 0;
 
-    nh = vr_inet_route_lookup(vrf, &rt, pkt);
+    nh = vr_inet_route_lookup(vrf, &rt);
     if (rt.rtr_req.rtr_label_flags & VR_RT_LABEL_VALID_FLAG) {
         if (!fmd) {
             vr_init_forwarding_md(&rt_fmd);
@@ -296,7 +293,7 @@ vr_forward(struct vrouter *router, unsigned short vrf,
                pkt_set_network_header(pkt, pkt->vp_data);
 
                memcpy(rt.rtr_req.rtr_prefix, outer_ip6->ip6_dst, 16);
-               nh = vr_inet_route_lookup(vrf, &rt, pkt);
+               nh = vr_inet_route_lookup(vrf, &rt);
            }
        }
     }
@@ -1029,7 +1026,7 @@ vr_myip(struct vr_interface *vif, unsigned int ip)
     rt.rtr_req.rtr_nh_id = 0;
     rt.rtr_req.rtr_marker_size = 0;
 
-    nh = vr_inet_route_lookup(vif->vif_vrf, &rt, NULL);
+    nh = vr_inet_route_lookup(vif->vif_vrf, &rt);
 
     if (!nh || nh->nh_type != NH_RCV)
         return 0;
@@ -1052,7 +1049,7 @@ vr_inet_route_flags(unsigned int vrf, unsigned int ip)
     rt.rtr_req.rtr_prefix_size = 4;
     rt.rtr_req.rtr_prefix_len = IP4_PREFIX_LEN;
 
-    (void)vr_inet_route_lookup(vrf, &rt, NULL);
+    (void)vr_inet_route_lookup(vrf, &rt);
 
     return rt.rtr_req.rtr_label_flags;
 }

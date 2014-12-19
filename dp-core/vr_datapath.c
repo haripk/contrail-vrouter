@@ -120,8 +120,9 @@ vr_arp_request_treatment(unsigned short vrf, struct vr_packet *pkt,
                 goto proxy;
             }
 
-            if (!vr_get_bridge_entry_data_by_index(rt.rtr_req.rtr_nh_id,
-                                                       src_mac, NULL)) {
+            rt.rtr_req.rtr_index = rt.rtr_req.rtr_nh_id;
+            rt.rtr_req.rtr_mac = src_mac;
+            if (vr_bridge_lookup(vrf, &rt)) {
                 if (stats)
                     stats->vrf_arp_virtual_stitch++;
                 goto stitch;
@@ -158,9 +159,9 @@ vr_arp_request_treatment(unsigned short vrf, struct vr_packet *pkt,
         } else {
             if (rt.rtr_req.rtr_label_flags & VR_RT_PROXY_FLAG) {
                 if (rt.rtr_req.rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG) {
-                    vr_get_bridge_entry_data_by_index(rt.rtr_req.rtr_nh_id,
-                                                    src_mac, &nh);
-                    if (nh) {
+                    rt.rtr_req.rtr_index = rt.rtr_req.rtr_nh_id;
+                    rt.rtr_req.rtr_mac = src_mac;
+                    if ((nh = vr_bridge_lookup(vrf, &rt))) {
                         if (nh->nh_type == NH_ENCAP) {
                             if (stats)
                                 stats->vrf_arp_physical_stitch++;
@@ -224,7 +225,7 @@ vr_handle_arp_request(unsigned short vrf, struct vr_arp *sarp,
             rt.rtr_req.rtr_prefix_size = 4;
             rt.rtr_req.rtr_prefix_len = 32;
 
-            nh = vr_inet_route_lookup(vrf, &rt, NULL);
+            nh = vr_inet_route_lookup(vrf, &rt);
             if ((!nh) || ((nh->nh_type != NH_ENCAP) &&
                     (nh->nh_type != NH_RCV) && (nh->nh_type != NH_RESOLVE))) {
                 vr_pfree(pkt, VP_DROP_ARP_REPLY_NO_ROUTE);
@@ -233,7 +234,7 @@ vr_handle_arp_request(unsigned short vrf, struct vr_arp *sarp,
         } else {
             rt.rtr_req.rtr_mac_size = VR_ETHER_ALEN;
             rt.rtr_req.rtr_mac = sarp->arp_sha;
-            if (!vr_bridge_lookup(vrf, &rt, pkt)) {
+            if (!vr_bridge_lookup(vrf, &rt)) {
                 vr_pfree(pkt, VP_DROP_ARP_REPLY_NO_ROUTE);
                 return 1;
             }
@@ -490,6 +491,9 @@ vr_virtual_input(unsigned short vrf, struct vr_interface *vif,
         return 0;
     }
 
+    if (!vr_flow_forward(pkt->vp_if->vif_router, vrf, pkt, &fmd))
+        return 0;
+
     vr_bridge_input(vif->vif_router, vrf, pkt, &fmd);
     return 0;
 
@@ -545,7 +549,7 @@ vr_l2_input(unsigned short vrf, struct vr_packet *pkt,
         rt.rtr_req.rtr_mac = (int8_t *)vr_bcast_mac;
     rt.rtr_req.rtr_vrf_id = vrf;
 
-    nh = vr_bridge_lookup(vrf, &rt, pkt);
+    nh = vr_bridge_lookup(vrf, &rt);
     if (!nh) {
         vr_pfree(pkt, VP_DROP_L2_NO_ROUTE);
         return 1;

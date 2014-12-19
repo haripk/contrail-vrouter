@@ -85,8 +85,7 @@ struct vr_route {
 struct vr_rtable {
     int (*algo_add)(struct vr_rtable *, struct vr_route_req *);
     int (*algo_del)(struct vr_rtable *, struct vr_route_req *);
-    bool (*algo_lookup)(unsigned int, struct vr_route_req *,
-            struct vr_packet *);
+    struct vr_nexthop *(*algo_lookup)(unsigned int, struct vr_route_req *);
     int (*algo_get)(unsigned int, struct vr_route_req *);
     int (*algo_dump)(struct vr_rtable *, struct vr_route_req *);
     struct vr_vrf_stats *(*algo_stats)(unsigned short, unsigned int);
@@ -118,7 +117,7 @@ extern int vr_fib_init(struct vrouter *);
 extern void vr_fib_exit(struct vrouter *, bool);
 extern int vr_route_add(vr_route_req *);
 extern struct vr_nexthop *(*vr_inet_route_lookup)(unsigned int,
-               struct vr_route_req *, struct vr_packet *);
+               struct vr_route_req *);
 extern int (*vr_inet_route_get)(unsigned int, struct vr_route_req *);
 
 #ifdef __cplusplus

@@ -73,7 +73,7 @@ vr_neighbor_response_type(unsigned short vrf, struct vr_packet *pkt,
     rt.rtr_req.rtr_nh_id = 0;
     rt.rtr_req.rtr_label_flags = 0;
 
-    nh = vr_inet_route_lookup(vrf, &rt, NULL);
+    nh = vr_inet_route_lookup(vrf, &rt);
     if (!nh)
         return NOT_ME;
 

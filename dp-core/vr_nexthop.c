@@ -24,9 +24,6 @@ extern struct vr_nexthop * vr_inet_src_lookup(unsigned short ,
 
 struct vr_nexthop *ip4_default_nh;
 struct vr_nexthop *ip6_default_nh;
-extern struct vr_nexthop *(*vr_inet_route_lookup)(unsigned int,
-                        struct vr_route_req *, struct vr_packet *);
-
 
 struct vr_nexthop *
 __vrouter_get_nexthop(struct vrouter *router, unsigned int index)
