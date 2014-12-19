@@ -292,7 +292,7 @@ vr_mpls_input(struct vrouter *router, struct vr_packet *pkt,
         pkt->vp_flags |= VP_FLAG_GRO;
 
     /* Reset the flags which get defined below */
-    pkt->vp_flags &= ~(VP_FLAG_MULTICAST | VP_FLAG_L2_PAYLOAD);
+    pkt->vp_flags &= ~VP_FLAG_MULTICAST;
 
     if (nh->nh_family == AF_INET) {
         ip = (struct vr_ip *)pkt_data(pkt);
@@ -305,9 +305,6 @@ vr_mpls_input(struct vrouter *router, struct vr_packet *pkt,
         pkt_set_inner_network_header(pkt, pkt->vp_data);
 
     } else if (nh->nh_family == AF_BRIDGE) {
-
-        /* All bridge packets are L2 payload packets */
-        pkt->vp_flags |= VP_FLAG_L2_PAYLOAD;
 
         if (nh->nh_type == NH_COMPOSITE) {
             if (label >= VR_MAX_UCAST_LABELS)

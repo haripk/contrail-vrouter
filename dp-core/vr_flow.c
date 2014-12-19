@@ -473,8 +473,6 @@ vr_enqueue_flow(struct vrouter *router, struct vr_flow_entry *fe,
     if (fmd) {
         pnode->pl_outer_src_ip = fmd->fmd_outer_src_ip;
         pnode->pl_label = fmd->fmd_label;
-        if (fmd->fmd_to_me)
-            pnode->pl_flags |= PN_FLAG_PKT_IS_TO_ME;
     }
 
     __sync_synchronize();
@@ -777,12 +775,10 @@ vr_flow_forward(struct vrouter *router, unsigned short vrf,
 {
     flow_result_t result;
 
-    if ((pkt->vp_type == VP_TYPE_IP) &&(!(pkt->vp_flags &
-                    VP_FLAG_L2_PAYLOAD))) {
+    if (pkt->vp_type == VP_TYPE_IP)
         result = vr_inet_flow_lookup(router, vrf, pkt, fmd);
-    } else {
+    else
         result = FLOW_FORWARD;
-    }
 
     return __vr_flow_forward(result, pkt, fmd);
 }
@@ -806,8 +802,6 @@ vr_flush_flow_queue(struct vrouter *router, struct vr_flow_entry *fe,
             memset(fmd, 0, sizeof(*fmd));
             fmd->fmd_outer_src_ip = pnode->pl_outer_src_ip;
             fmd->fmd_label = pnode->pl_label;
-            if (pnode->pl_flags & PN_FLAG_PKT_IS_TO_ME)
-                fmd->fmd_to_me = 1;
         }
 
         pkt = pnode->pl_packet;

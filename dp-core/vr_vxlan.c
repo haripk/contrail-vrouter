@@ -50,9 +50,6 @@ vr_vxlan_input(struct vrouter *router, struct vr_packet *pkt,
         goto fail;
     }
 
-    /* Vxlan carried packets are always L2 payload packets */
-    pkt->vp_flags |= VP_FLAG_L2_PAYLOAD;
-
     if (vr_pkt_type(pkt, 0) < 0) {
         drop_reason = VP_DROP_INVALID_PACKET;
         goto fail;

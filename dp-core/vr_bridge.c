@@ -229,7 +229,7 @@ bridge_table_lookup(unsigned int vrf_id, struct vr_route_req *rt)
     be = vr_find_bridge_entry(&key);
     if (be) {
         if (be->be_flags & VR_BE_FLAG_LABEL_VALID)
-            rt->rtr_req.rtr_label_flags = VR_RT_LABEL_VALID_FLAG;
+            rt->rtr_req.rtr_label_flags |= VR_RT_LABEL_VALID_FLAG;
         rt->rtr_req.rtr_label = be->be_label;
         rt->rtr_nh = be->be_nh;
         rt->rtr_req.rtr_index = be->be_index;
@@ -411,31 +411,28 @@ vr_bridge_input(struct vrouter *router, unsigned short vrf,
         return 0;
     }
 
-    if (nh->nh_type == NH_L2_RCV) {
+    if (nh->nh_type == NH_L2_RCV)
         overlay_len = VROUTER_OVERLAY_LEN;
-        fmd->fmd_to_me = 1;
-    } else {
-        pkt->vp_flags |= VP_FLAG_L2_PAYLOAD;
-    }
 
     if (pkt->vp_type == VP_TYPE_IP || pkt->vp_type == VP_TYPE_IP6) {
 
-        pull_len = pkt_get_network_header_off(pkt) - pkt_head_space(pkt);
-        if (!pkt_pull(pkt, pull_len)) {
-            vr_pfree(pkt, VP_DROP_PULL);
-            return 0;
-        }
+        if (vif_is_virtual(pkt->vp_if) &&
+                vr_from_vm_mss_adj && vr_pkt_from_vm_tcp_mss_adj) {
 
-        if (vr_from_vm_mss_adj && vr_pkt_from_vm_tcp_mss_adj) {
+            pull_len = pkt_get_network_header_off(pkt) - pkt_head_space(pkt);
+            if (!pkt_pull(pkt, pull_len)) {
+                vr_pfree(pkt, VP_DROP_PULL);
+                return 0;
+            }
+
             if ((reason = vr_pkt_from_vm_tcp_mss_adj(pkt, overlay_len))) {
                 vr_pfree(pkt, reason);
                 return 0;
             }
-        }
-
-        if (!pkt_push(pkt, pull_len)) {
-            vr_pfree(pkt, VP_DROP_PUSH);
-            return 0;
+            if (!pkt_push(pkt, pull_len)) {
+                vr_pfree(pkt, VP_DROP_PUSH);
+                return 0;
+            }
         }
     }
 

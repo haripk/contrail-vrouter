@@ -71,8 +71,6 @@
 #define VP_FLAG_GSO             (1 << 7)
 /* Diagnostic packet */
 #define VP_FLAG_DIAG            (1 << 8)
-/* Mark the packet as L2 payload packet */
-#define VP_FLAG_L2_PAYLOAD      (1 << 9)
 
 /* 
  * possible 256 values of what a packet can be. currently, this value is
@@ -440,15 +438,6 @@ vr_pkt_is_ip(struct vr_packet *pkt)
 }
 
 static inline bool
-vr_pkt_is_l2(struct vr_packet *pkt)
-{
-    if (pkt->vp_flags & VP_FLAG_L2_PAYLOAD)
-        return true;
-
-    return false;
-}
-
-static inline bool
 vr_pkt_type_is_overlay(unsigned short type)
 {
     if (type == VP_TYPE_IPOIP || type == VP_TYPE_IP6OIP)
@@ -685,7 +674,6 @@ struct vr_forwarding_md {
     uint32_t fmd_outer_src_ip;
     uint16_t fmd_vlan;
     uint16_t fmd_udp_src_port;
-    uint8_t fmd_to_me;
 };
 
 static inline void
@@ -699,7 +687,6 @@ vr_init_forwarding_md(struct vr_forwarding_md *fmd)
     fmd->fmd_outer_src_ip = 0;
     fmd->fmd_vlan = 4096;
     fmd->fmd_udp_src_port = 0;
-    fmd->fmd_to_me = 0;
     return;
 }
 

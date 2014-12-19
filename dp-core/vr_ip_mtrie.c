@@ -951,6 +951,8 @@ mtrie_add(struct vr_rtable * _unused, struct vr_route_req *rt)
     struct ip_mtrie       *mtrie = vrfid_to_mtrie(vrf_id, rt->rtr_req.rtr_family);
     int ret;
     struct vr_nexthop *nh = NULL;
+    unsigned short label_flags;
+
 
     mtrie = (mtrie ? : mtrie_alloc_vrf(vrf_id, rt->rtr_req.rtr_family));
     if (!mtrie)
@@ -958,11 +960,13 @@ mtrie_add(struct vr_rtable * _unused, struct vr_route_req *rt)
 
     if ((rt->rtr_req.rtr_mac_size == VR_ETHER_ALEN) &&
             (!IS_MAC_ZERO(rt->rtr_req.rtr_mac))) {
+
+        label_flags = rt->rtr_req.rtr_label_flags;
         if (!vr_bridge_lookup(rt->rtr_req.rtr_vrf_id, rt))
             return -ENOENT;
 
         rt->rtr_bridge_index = INDEX_TO_DATA(rt->rtr_req.rtr_index);
-        rt->rtr_req.rtr_label_flags |= VR_RT_BRIDGE_ENTRY_FLAG;
+        rt->rtr_req.rtr_label_flags = label_flags | VR_RT_BRIDGE_ENTRY_FLAG;
     } else {
 
         rt->rtr_nh = vrouter_get_nexthop(rt->rtr_req.rtr_rid,

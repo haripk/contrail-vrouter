@@ -1523,44 +1523,42 @@ nh_output(unsigned short vrf, struct vr_packet *pkt,
         return 0;
     }
 
-    if (!vr_pkt_is_l2(pkt)) {
-        if (pkt->vp_type == VP_TYPE_IP) {
-            /*
-             * If the packet has not gone through flow lookup once
-             * (!VP_FLAG_FLOW_SET), we need to determine whether it has to undergo
-             * flow lookup now or not. There are two cases:
-             *
-             * 1. when policy flag is set in the nexthop, and
-             * 2. when the source is an ECMP.
-             *
-             * When the source is an ECMP, we would like the packet to reach the
-             * same place from where it came from, and hence a flow has to be setup
-             * so that DP knows where to send the packet to (from an ECMP NH).
-             * Typical example for this situation is when the packet reaches the
-             * target VM's server from an ECMP-ed service chain.
-            */
-            ip = (struct vr_ip *)pkt_network_header(pkt);
-            if (!(pkt->vp_flags & VP_FLAG_FLOW_SET)) {
-                if (nh->nh_flags & NH_FLAG_POLICY_ENABLED) {
-                    need_flow_lookup = true;
-                } else {
-                    src_nh = vr_inet_src_lookup(vrf, ip, pkt);
-                    if (src_nh && src_nh->nh_type == NH_COMPOSITE &&
+    if (pkt->vp_type == VP_TYPE_IP) {
+        /*
+         * If the packet has not gone through flow lookup once
+         * (!VP_FLAG_FLOW_SET), we need to determine whether it has to undergo
+         * flow lookup now or not. There are two cases:
+         *
+         * 1. when policy flag is set in the nexthop, and
+         * 2. when the source is an ECMP.
+         *
+         * When the source is an ECMP, we would like the packet to reach the
+         * same place from where it came from, and hence a flow has to be setup
+         * so that DP knows where to send the packet to (from an ECMP NH).
+         * Typical example for this situation is when the packet reaches the
+         * target VM's server from an ECMP-ed service chain.
+         */
+         ip = (struct vr_ip *)pkt_network_header(pkt);
+         if (!(pkt->vp_flags & VP_FLAG_FLOW_SET)) {
+             if (nh->nh_flags & NH_FLAG_POLICY_ENABLED) {
+                 need_flow_lookup = true;
+             } else {
+                 src_nh = vr_inet_src_lookup(vrf, ip, pkt);
+                 if (src_nh && src_nh->nh_type == NH_COMPOSITE &&
                             src_nh->nh_flags & NH_FLAG_COMPOSITE_ECMP) {
-                        need_flow_lookup = true;
-                    }
-                }
-                if (need_flow_lookup) {
-                    pkt->vp_flags |= VP_FLAG_FLOW_GET;
-                    if (!vr_flow_forward(nh->nh_router, vrf, pkt, fmd))
-                        return 0;
+                     need_flow_lookup = true;
+                 }
+             }
+             if (need_flow_lookup) {
+                 pkt->vp_flags |= VP_FLAG_FLOW_GET;
+                 if (!vr_flow_forward(nh->nh_router, vrf, pkt, fmd))
+                     return 0;
 
-                    if (!pkt->vp_nh) {
-                        vr_pfree(pkt, VP_DROP_INVALID_NH);
-                        return 0;
-                    }
-                }
-            }
+                 if (!pkt->vp_nh) {
+                     vr_pfree(pkt, VP_DROP_INVALID_NH);
+                     return 0;
+                 }
+             }
         }
     }
 

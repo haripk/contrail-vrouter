@@ -429,41 +429,16 @@ vr_my_pkt(unsigned char *pkt_mac, struct vr_interface *vif)
 unsigned int
 vr_reinject_packet(struct vr_packet *pkt, struct vr_forwarding_md *fmd)
 {
-    int handled;
-    unsigned short pull_len;
-    struct vr_nexthop *nh;
     struct vr_interface *vif = pkt->vp_if;
 
-    vr_printf("%s: from %d in vrf %d to me %d type %d data %d network %d\n",
-            __FUNCTION__, pkt->vp_if->vif_idx, fmd->fmd_dvrf,  fmd->fmd_to_me,
+    vr_printf("%s: from %d in vrf %d type %d data %d network %d\n",
+            __FUNCTION__, pkt->vp_if->vif_idx, fmd->fmd_dvrf,
             pkt->vp_type, pkt->vp_data, pkt->vp_network_h);
 
-    nh = pkt->vp_nh;
-    if (nh) {
-        return nh->nh_reach_nh(fmd->fmd_dvrf, pkt, nh, fmd);
-    }
+    if (pkt->vp_nh)
+        return pkt->vp_nh->nh_reach_nh(fmd->fmd_dvrf, pkt, pkt->vp_nh, fmd);
 
-    if (fmd->fmd_to_me) {
-        handled = vr_l3_input(fmd->fmd_dvrf, pkt, fmd);
-        if (handled)
-            return 0;
-    }
-
-    if (vif_is_virtual(vif)) {
-        pull_len = pkt_get_network_header_off(pkt) - pkt_head_space(pkt);
-        if (pkt_push(pkt, pull_len)) {
-            handled = vr_l2_input(fmd->fmd_dvrf, pkt, fmd);
-            if (handled)
-                return 0;
-        }
-    } else {
-        if (fmd->fmd_label)
-            return vr_bridge_input(vif->vif_router, fmd->fmd_dvrf, pkt, fmd);
-    }
-
-    vif_drop_pkt(vif, pkt, 1);
-
-    return 0;
+    return vr_bridge_input(vif->vif_router, fmd->fmd_dvrf, pkt, fmd);
 }
 
 /*
