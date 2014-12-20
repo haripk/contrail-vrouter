@@ -2303,6 +2303,11 @@ vr_nexthop_make_req(vr_nexthop_req *req, struct vr_nexthop *nh)
            req->nhr_encap_oif_id = nh->nh_dev->vif_idx;
         break;
 
+    case NH_L2_RCV:
+        if (nh->nh_dev)
+           req->nhr_encap_oif_id = nh->nh_dev->vif_idx;
+        break;
+
     case NH_ENCAP:
         if (nh->nh_dev)
             req->nhr_encap_oif_id = nh->nh_dev->vif_idx;

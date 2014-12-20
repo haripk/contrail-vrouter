@@ -511,37 +511,6 @@ vr_fabric_input(struct vr_interface *vif, struct vr_packet *pkt,
 }
 
 int
-vr_l2_input(unsigned short vrf, struct vr_packet *pkt,
-            struct vr_forwarding_md *fmd)
-{
-    struct vr_route_req rt;
-    struct vr_nexthop *nh;
-
-    rt.rtr_req.rtr_mac_size = VR_ETHER_ALEN;
-    rt.rtr_req.rtr_mac =(int8_t *) pkt_data(pkt);
-    /* If multicast L2 packet, use broadcast composite nexthop */
-    if (IS_MAC_BMCAST(rt.rtr_req.rtr_mac))
-        rt.rtr_req.rtr_mac = (int8_t *)vr_bcast_mac;
-    rt.rtr_req.rtr_vrf_id = vrf;
-
-    nh = vr_bridge_lookup(vrf, &rt);
-    if (!nh) {
-        vr_pfree(pkt, VP_DROP_L2_NO_ROUTE);
-        return 1;
-    }
-
-    /*
-     * If there is a label attached to this bridge entry add the
-     * label
-     */
-    if (rt.rtr_req.rtr_label_flags & VR_RT_LABEL_VALID_FLAG)
-        fmd->fmd_label = rt.rtr_req.rtr_label;
-
-    nh_output(vrf, pkt, nh, fmd);
-    return 1;
-}
-
-int
 vr_l3_input(unsigned short vrf, struct vr_packet *pkt,
                               struct vr_forwarding_md *fmd)
 {

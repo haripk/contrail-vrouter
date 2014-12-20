@@ -195,6 +195,7 @@ buffer sandesh vr_vrf_stats_req {
    32:  i64                 vsr_encap_arp_responses;
    33:  i64                 vsr_tunnel_arp_responses;
    34:  i64                 vsr_drop_arp_responses;
+   35:  i64                 vsr_l2_receives;
 }
 
 buffer sandesh vr_response {

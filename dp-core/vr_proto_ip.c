@@ -194,8 +194,10 @@ vr_forward(struct vrouter *router, unsigned short vrf,
     short plen;
     uint32_t rt_prefix[4];
 
+#if 0
     if (pkt->vp_nh)
         return nh_output(vrf, pkt, pkt->vp_nh, fmd);
+#endif
 
     ip = (struct vr_ip *)pkt_data(pkt);
     if (vr_ip_is_ip6(ip)) {

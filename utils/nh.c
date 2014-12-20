@@ -60,6 +60,8 @@ nh_type(uint32_t type)
            return "Dead";
        case NH_RCV:
            return "Receieve";
+       case NH_L2_RCV:
+           return "L2 Receieve";
        case NH_ENCAP:
            return "Encap";
        case NH_TUNNEL:
@@ -183,6 +185,9 @@ vr_nexthop_req_process(void *s_req)
                 nh_flags(req->nhr_flags, req->nhr_type, flags_mem), req->nhr_rid, req->nhr_ref_cnt);
 
     if (req->nhr_type == NH_RCV)
+        printf("\tOif:%d\n", req->nhr_encap_oif_id);
+
+    if (req->nhr_type == NH_L2_RCV)
         printf("\tOif:%d\n", req->nhr_encap_oif_id);
 
     if (req->nhr_type == NH_ENCAP) {
@@ -371,8 +376,12 @@ cmd_usage()
            "       [--vrf <vrf_id> ]\n"
            "       [--pol NH with policy]\n"
            "       [--rpol NH with relaxed policy]\n"
-           "       [--type <type> type of the tunnel 1 - rcv, 2 - encap, 3 - tunnel, 4 - resolve, 5 - discard, 6 - Composite, 7 - Vxlan VRF] \n"
+           "       [--type <type> type of the tunnel 1 - rcv, 2 - encap \n"
+           "                       3 - tunnel, 4 - resolve, 5 - discard, 6 - Composite\n"
+           "                       7 - Vxlan VRF, 8 - L2 Rcv NH] \n"
            "                [RCV_NH options]\n"
+           "                    [--oif <if_id> out going interface index]\n"
+           "                [L2RCV_NH options]\n"
            "                    [--oif <if_id> out going interface index]\n"
            "                [ENCAP_NH optionsi - default L3]\n"
            "                    [--el2 encap L2 ]\n"
@@ -450,6 +459,7 @@ enum opt_index {
     CRT_OPT_IND,
     DEL_OPT_IND,
     CMD_OPT_IND,
+    RL2_OPT_IND,
     HLP_OPT_IND,
     MAX_OPT_IND
 };
@@ -608,6 +618,11 @@ validate_options()
 
 
             if (type == NH_RCV) {
+                if (!opt_set(OIF_OPT_IND))
+                    cmd_usage();
+                if (memcmp(opt, zero_opt, sizeof(opt)))
+                    cmd_usage();
+            } else if (type == NH_L2_RCV) {
                 if (!opt_set(OIF_OPT_IND))
                     cmd_usage();
                 if (memcmp(opt, zero_opt, sizeof(opt)))
