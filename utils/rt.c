@@ -141,7 +141,7 @@ vr_route_req_process(void *s_req)
             if (rt->rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG)
                 strcat(flags, "B");
             if (rt->rtr_label_flags & VR_RT_ARP_FLOOD_FLAG)
-                strcat(flags, "B");
+                strcat(flags, "F");
 
             printf("%5s", flags);
 
