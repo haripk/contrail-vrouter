@@ -134,11 +134,13 @@ vr_route_req_process(void *s_req)
             bzero(flags, sizeof(flags));
             if (rt->rtr_label_flags & VR_RT_LABEL_VALID_FLAG)
                 strcat(flags, "L");
-            if (rt->rtr_label_flags & VR_RT_PROXY_FLAG)
+            if (rt->rtr_label_flags & VR_RT_ARP_PROXY_FLAG)
                 strcat(flags, "P");
             if (rt->rtr_label_flags & VR_RT_ARP_TRAP_FLAG)
                 strcat(flags, "T");
             if (rt->rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG)
+                strcat(flags, "B");
+            if (rt->rtr_label_flags & VR_RT_ARP_FLOOD_FLAG)
                 strcat(flags, "B");
 
             printf("%5s", flags);
@@ -257,7 +259,7 @@ vr_build_route_request(unsigned int op, int family, int8_t *prefix,
         rt_req.rtr_replace_plen = replace_plen;
 
         if (cmd_proxy_set)
-            rt_req.rtr_label_flags |= VR_RT_PROXY_FLAG;
+            rt_req.rtr_label_flags |= VR_RT_ARP_PROXY_FLAG;
 
         if (cmd_trap_set)
             rt_req.rtr_label_flags |= VR_RT_ARP_TRAP_FLAG;
