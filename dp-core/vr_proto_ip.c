@@ -86,7 +86,7 @@ vr_ip_update_csum(struct vr_packet *pkt, unsigned int ip_inc, unsigned int inc)
     unsigned int csum;
     unsigned short *csump;
 
-    ip = (struct vr_ip *)pkt_data(pkt);
+    ip = (struct vr_ip *)pkt_network_header(pkt);
     ip->ip_csum = vr_ip_csum(ip);
 
     if (ip->ip_proto == VR_IP_PROTO_TCP) {
