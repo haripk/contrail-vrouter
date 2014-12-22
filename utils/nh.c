@@ -59,9 +59,9 @@ nh_type(uint32_t type)
        case NH_DEAD:
            return "Dead";
        case NH_RCV:
-           return "Receieve";
+           return "Receive";
        case NH_L2_RCV:
-           return "L2 Receieve";
+           return "L2 Receive";
        case NH_ENCAP:
            return "Encap";
        case NH_TUNNEL:
@@ -154,7 +154,8 @@ nh_flags(uint16_t flags, uint8_t type, char *ptr)
             break;
 
         case NH_FLAG_TUNNEL_VXLAN:
-                strcat(ptr, "Vxlan, ");
+        case NH_FLAG_VNID:
+            strcat(ptr, "Vxlan, ");
             break;
         }
     }
