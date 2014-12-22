@@ -1753,22 +1753,8 @@ nh_rcv_arp_response(unsigned short vrf, struct vr_packet *pkt,
 static int
 nh_l2_rcv_add(struct vr_nexthop *nh, vr_nexthop_req *req)
 {
-    struct vr_interface  *vif, *old_vif;
-    vif = vrouter_get_interface(nh->nh_rid, req->nhr_encap_oif_id);
-    if (!vif)
-        return -ENODEV;
-    /*
-     *  We need to delete the reference to old_vif only after new vif is
-     * added to NH
-     */
-    old_vif = nh->nh_dev;
-    nh->nh_dev = vif;
-
     nh->nh_reach_nh = nh_l2_rcv;
     nh->nh_arp_response = nh_rcv_arp_response;
-
-    if (old_vif)
-        vrouter_put_interface(old_vif);
     return 0;
 }
 

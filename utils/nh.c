@@ -187,9 +187,6 @@ vr_nexthop_req_process(void *s_req)
     if (req->nhr_type == NH_RCV)
         printf("\tOif:%d\n", req->nhr_encap_oif_id);
 
-    if (req->nhr_type == NH_L2_RCV)
-        printf("\tOif:%d\n", req->nhr_encap_oif_id);
-
     if (req->nhr_type == NH_ENCAP) {
         printf("\tEncapFmly:%04x Oif:%d Len:%d Data:", req->nhr_encap_family, req->nhr_encap_oif_id, req->nhr_encap_size);
         for (i = 0; i< req->nhr_encap_size; i++) {
@@ -623,8 +620,6 @@ validate_options()
                 if (memcmp(opt, zero_opt, sizeof(opt)))
                     cmd_usage();
             } else if (type == NH_L2_RCV) {
-                if (!opt_set(OIF_OPT_IND))
-                    cmd_usage();
                 if (memcmp(opt, zero_opt, sizeof(opt)))
                     cmd_usage();
             } else if (type == NH_ENCAP) {
