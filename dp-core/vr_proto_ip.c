@@ -759,7 +759,12 @@ vr_inet_flow_nexthop(struct vr_packet *pkt, unsigned short vlan)
     unsigned short nh_id;
 
     if (vif_is_fabric(pkt->vp_if) && pkt->vp_nh) {
-        nh_id = pkt->vp_nh->nh_id;
+        /* this is more a requirement from agent */
+        if ((pkt->vp_nh->nh_type == NH_ENCAP)) {
+            nh_id = pkt->vp_nh->nh_dev->vif_nh_id;
+        } else {
+            nh_id = pkt->vp_nh->nh_id;
+        }
     } else if (vif_is_service(pkt->vp_if)) {
         nh_id = vif_vrf_table_get_nh(pkt->vp_if, vlan);
     } else {
