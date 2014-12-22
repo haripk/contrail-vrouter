@@ -32,8 +32,8 @@ vr_v6_prefix_is_ll(uint8_t prefix[])
     return false;
 }
 
-static int
-vr_arp_request_treatment(unsigned short vrf, struct vr_packet *pkt,
+static mac_response_t
+vr_arp_response_type(unsigned short vrf, struct vr_packet *pkt,
                          struct vr_arp *arp, char *src_mac, int pkt_src,
                          int *drop_reason)
 {
@@ -48,7 +48,7 @@ vr_arp_request_treatment(unsigned short vrf, struct vr_packet *pkt,
 
     *drop_reason = VP_DROP_INVALID_ARP;
     if (vif_mode_xconnect(vif))
-        return PKT_ARP_XCONNECT;
+        return MR_XCONNECT;
 
     if (vif_is_virtual(vif))
         /*
@@ -56,7 +56,7 @@ vr_arp_request_treatment(unsigned short vrf, struct vr_packet *pkt,
          * of the DIP
          */
         if (!arp->arp_spa)
-            return PKT_ARP_DROP;
+            return MR_DROP;
 
     if (vif->vif_type == VIF_TYPE_XEN_LL_HOST ||
             vif->vif_type == VIF_TYPE_GATEWAY)
@@ -77,9 +77,9 @@ vr_arp_request_treatment(unsigned short vrf, struct vr_packet *pkt,
      */
     if (grat_arp && (vif->vif_type == VIF_TYPE_PHYSICAL)) {
         if (!pkt_src)
-            return PKT_ARP_TRAP_XCONNECT;
+            return MR_TRAP_X;
         else
-            return PKT_ARP_FLOOD;
+            return MR_FLOOD;
     }
 
     memset(&rt, 0, sizeof(rt));
@@ -99,9 +99,9 @@ vr_arp_request_treatment(unsigned short vrf, struct vr_packet *pkt,
          */
         if (grat_arp) {
             if (rt.rtr_req.rtr_label_flags & VR_RT_ARP_TRAP_FLAG)
-                return PKT_ARP_TRAP;
+                return MR_TRAP;
             else
-                return PKT_ARP_FLOOD;
+                return MR_FLOOD;
         }
 
         /*
@@ -132,16 +132,16 @@ vr_arp_request_treatment(unsigned short vrf, struct vr_packet *pkt,
         /* If there is no route found, lets drop the ARP request */
         if ((!rt.rtr_nh) || (rt.rtr_nh->nh_type == NH_DISCARD)) {
             *drop_reason = VP_DROP_ARP_NO_ROUTE;
-            return PKT_ARP_DROP;
+            return MR_DROP;
         }
 
         if (stats)
             stats->vrf_arp_virtual_flood++;
-        return PKT_ARP_FLOOD;
+        return MR_FLOOD;
     }
 
     if (vif->vif_type == VIF_TYPE_HOST)
-        return PKT_ARP_XCONNECT;
+        return MR_XCONNECT;
 
     /*
      * Request from Physical:
@@ -181,17 +181,17 @@ vr_arp_request_treatment(unsigned short vrf, struct vr_packet *pkt,
             }
             if (stats)
                 stats->vrf_arp_physical_flood++;
-            return PKT_ARP_FLOOD;
+            return MR_FLOOD;
         }
     }
 
     *drop_reason = VP_DROP_ARP_NO_WHERE_TO_GO;
-    return PKT_ARP_DROP;
+    return MR_DROP;
 
 proxy:
     VR_MAC_COPY(src_mac, vif->vif_mac);
 stitch:
-    return PKT_ARP_PROXY;
+    return MR_PROXY;
 }
 
 static int
@@ -199,20 +199,23 @@ vr_handle_arp_request(unsigned short vrf, struct vr_arp *sarp,
                       struct vr_packet *pkt, struct vr_forwarding_md *fmd,
                       int pkt_src)
 {
-    struct vr_packet *cloned_pkt;
-    struct vr_interface *vif = pkt->vp_if;
+    int drop_reason;
+    unsigned int dpa;
+    mac_response_t arp_result;
+
     struct vr_eth *eth;
     struct vr_arp *arp;
-    unsigned int dpa;
-    int arp_result, drop_reason;
-    struct vr_route_req rt;
-    char arp_src_mac[VR_ETHER_ALEN];
     struct vr_nexthop *nh;
+    struct vr_route_req rt;
+    struct vr_packet *cloned_pkt;
+    struct vr_interface *vif = pkt->vp_if;
 
-    arp_result = vr_arp_request_treatment(vrf, pkt, sarp, arp_src_mac,
+    char arp_src_mac[VR_ETHER_ALEN];
+
+    arp_result = vr_arp_response_type(vrf, pkt, sarp, arp_src_mac,
                                           pkt_src, &drop_reason);
     switch (arp_result) {
-    case PKT_ARP_PROXY:
+    case MR_PROXY:
 
         memset(&rt, 0, sizeof(rt));
         rt.rtr_req.rtr_vrf_id = vrf;
@@ -269,10 +272,10 @@ vr_handle_arp_request(unsigned short vrf, struct vr_arp *sarp,
 
         nh->nh_arp_response(vrf, pkt, nh, fmd);
         break;
-    case PKT_ARP_XCONNECT:
+    case MR_XCONNECT:
         vif_xconnect(vif, pkt);
         break;
-    case PKT_ARP_TRAP_XCONNECT:
+    case MR_TRAP_X:
         cloned_pkt = vr_pclone(pkt);
         if (cloned_pkt) {
             vr_preset(cloned_pkt);
@@ -280,13 +283,13 @@ vr_handle_arp_request(unsigned short vrf, struct vr_arp *sarp,
         }
         vr_trap(pkt, vrf, AGENT_TRAP_ARP, NULL);
         break;
-    case PKT_ARP_TRAP:
+    case MR_TRAP:
         vr_preset(pkt);
         vr_trap(pkt, vrf, AGENT_TRAP_ARP, NULL);
         break;
-    case PKT_ARP_FLOOD:
+    case MR_FLOOD:
         return 0;
-    case PKT_ARP_DROP:
+    case MR_DROP:
     default:
         vr_pfree(pkt, drop_reason);
     }

@@ -124,17 +124,6 @@
 #define PKT_ENCAP_VXLAN 0x02
 
 
-/*
- * Values to define handling of ARP packet
- */
-#define PKT_ARP_DROP            0x00
-#define PKT_ARP_PROXY           0x01
-#define PKT_ARP_XCONNECT        0x02
-#define PKT_ARP_FLOOD           0x03
-#define PKT_ARP_TRAP_XCONNECT   0x04
-#define PKT_ARP_TRAP            0x05
-
-
 /* packet drop reasons */
 #define VP_DROP_DISCARD                     0
 #define VP_DROP_PULL                        1
@@ -295,6 +284,16 @@ struct vr_arp {
     unsigned char arp_dha[VR_ARP_HW_LEN];
     unsigned int arp_dpa;
 } __attribute__((packed));
+
+typedef enum {
+    MR_DROP,
+    MR_FLOOD,
+    MR_PROXY,
+    MR_NOT_ME,
+    MR_TRAP,
+    MR_TRAP_X,
+    MR_XCONNECT,
+} mac_response_t;
 
 #define VR_IP_DF    (0x1 << 14)
 #define VR_IP_MF    (0x1 << 13)

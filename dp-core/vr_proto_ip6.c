@@ -11,12 +11,6 @@
 #include <vr_datapath.h>
 #include <vr_ip_mtrie.h>
 
-typedef enum {
-    PROXY,
-    FLOOD,
-    NOT_ME,
-} neighbor_response_t;
-
 #define SOURCE_LINK_LAYER_ADDRESS_OPTION    1
 #define TARGET_LINK_LAYER_ADDRESS_OPTION    2
 
@@ -55,7 +49,7 @@ vr_icmp6_checksum(void *buffer, unsigned int bytes)
    return (uint16_t)total;
 }
 
-static neighbor_response_t
+static mac_response_t
 vr_neighbor_response_type(unsigned short vrf, struct vr_packet *pkt,
         struct vr_icmp *icmph)
 {
@@ -75,20 +69,20 @@ vr_neighbor_response_type(unsigned short vrf, struct vr_packet *pkt,
 
     nh = vr_inet_route_lookup(vrf, &rt);
     if (!nh)
-        return NOT_ME;
+        return MR_NOT_ME;
 
     if (rt.rtr_req.rtr_label_flags & VR_RT_PROXY_FLAG)
-        return PROXY;
+        return MR_PROXY;
 
     switch (nh->nh_type) {
     case NH_TUNNEL:
-        return PROXY;
+        return MR_PROXY;
 
     case  NH_COMPOSITE:
         if ((nh->nh_flags & NH_FLAG_COMPOSITE_EVPN) ||
                 (nh->nh_flags & NH_FLAG_COMPOSITE_L2)) {
             pkt->vp_nh = nh;
-            return FLOOD;
+            return MR_FLOOD;
         }
         break;
 
@@ -96,7 +90,7 @@ vr_neighbor_response_type(unsigned short vrf, struct vr_packet *pkt,
         break;
     }
 
-    return NOT_ME;
+    return MR_NOT_ME;
 }
 
 static void
@@ -104,7 +98,7 @@ vr_icmp6_neighbor_input(struct vrouter *router, unsigned short vrf,
         struct vr_packet *pkt, struct vr_forwarding_md *fmd)
 {
     uint16_t *eth_proto;
-    neighbor_response_t type;
+    mac_response_t type;
 
     struct vr_interface *vif = pkt->vp_if;
 
@@ -115,15 +109,15 @@ vr_icmp6_neighbor_input(struct vrouter *router, unsigned short vrf,
 
     type = vr_neighbor_response_type(vrf, pkt, icmph);
     switch (type) {
-    case FLOOD:
+    case MR_FLOOD:
         vr_preset(pkt);
         nh_output(vrf, pkt, pkt->vp_nh, fmd);
         return;
 
-    case PROXY:
+    case MR_PROXY:
         break;
 
-    case NOT_ME:
+    case MR_NOT_ME:
     default:
         vr_pfree(pkt, VP_DROP_ARP_NO_WHERE_TO_GO);
         return;
