@@ -50,13 +50,16 @@ vr_arp_response_type(unsigned short vrf, struct vr_packet *pkt,
     if (vif_mode_xconnect(vif))
         return MR_XCONNECT;
 
-    if (vif_is_virtual(vif))
-        /*
-         * some OSes send arp queries with zero SIP before taking ownership
-         * of the DIP
-         */
-        if (!arp->arp_spa)
-            return MR_DROP;
+    /*
+     * some OSes send arp queries with zero SIP before taking ownership
+     * of the DIP : Xconnect if Fabric or Vhost else let it reach
+     * the required destination
+     */
+    if (!arp->arp_spa) {
+        if ((vif->vif_type == VIF_TYPE_HOST) ||
+                ((vif->vif_type == VIF_TYPE_PHYSICAL) && (!pkt_src)))
+            return MR_XCONNECT;
+    }
 
     if (vif->vif_type == VIF_TYPE_XEN_LL_HOST ||
             vif->vif_type == VIF_TYPE_GATEWAY)
@@ -159,7 +162,17 @@ vr_arp_response_type(unsigned short vrf, struct vr_packet *pkt,
                     rt.rtr_req.rtr_index = rt.rtr_req.rtr_nh_id;
                     rt.rtr_req.rtr_mac = src_mac;
                     if ((nh = vr_bridge_lookup(vrf, &rt))) {
-                        if (nh->nh_type == NH_ENCAP) {
+
+                        /* Tor/Non Tor case :
+                         *   Stitch the Mac if VM is hosted in the
+                         *   same compute node
+                         * Tor Case :
+                         *   Stitch the Mac if there is a tunnel to
+                         *   other compute node
+                         */
+                        if ((nh->nh_type == NH_ENCAP) ||
+                                ((pkt_src == PKT_SRC_TOR_REPL_TREE) &&
+                                 nh->nh_type == NH_TUNNEL)) {
                             if (stats)
                                 stats->vrf_arp_physical_stitch++;
                             goto stitch;
