@@ -137,7 +137,7 @@ vr_arp_response_type(unsigned short vrf, struct vr_packet *pkt,
         }
 
         /* Nothing to handle */
-        return MR_DROP;
+        goto drop;
     }
 
     /*
@@ -182,6 +182,7 @@ vr_arp_response_type(unsigned short vrf, struct vr_packet *pkt,
         }
     }
 
+drop:
     *drop_reason = VP_DROP_ARP_NO_WHERE_TO_GO;
     return MR_DROP;
 
