@@ -66,6 +66,7 @@ vr_arp_response_type(unsigned short vrf, struct vr_packet *pkt,
     if (vif->vif_type == VIF_TYPE_HOST) {
         if (IS_LINK_LOCAL_IP(arp->arp_dpa))
             goto proxy;
+        return MR_XCONNECT;
     }
 
     grat_arp = vr_grat_arp(arp);
@@ -113,7 +114,7 @@ vr_arp_response_type(unsigned short vrf, struct vr_packet *pkt,
          * IF route is found and not proxied : Flood
          *
          */
-        if (rt.rtr_req.rtr_label_flags & VR_RT_PROXY_FLAG) {
+        if (rt.rtr_req.rtr_label_flags & VR_RT_ARP_PROXY_FLAG) {
             if (!(rt.rtr_req.rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG)) {
                 if (stats)
                     stats->vrf_arp_virtual_proxy++;
@@ -129,19 +130,15 @@ vr_arp_response_type(unsigned short vrf, struct vr_packet *pkt,
             }
         }
 
-        /* If there is no route found, lets drop the ARP request */
-        if ((!rt.rtr_nh) || (rt.rtr_nh->nh_type == NH_DISCARD)) {
-            *drop_reason = VP_DROP_ARP_NO_ROUTE;
-            return MR_DROP;
+        if (rt.rtr_req.rtr_label_flags & VR_RT_ARP_FLOOD_FLAG) {
+            if (stats)
+                stats->vrf_arp_virtual_flood++;
+            return MR_FLOOD;
         }
 
-        if (stats)
-            stats->vrf_arp_virtual_flood++;
-        return MR_FLOOD;
+        /* Nothing to handle */
+        goto drop;
     }
-
-    if (vif->vif_type == VIF_TYPE_HOST)
-        return MR_XCONNECT;
 
     /*
      * Request from Physical:
@@ -153,11 +150,11 @@ vr_arp_response_type(unsigned short vrf, struct vr_packet *pkt,
      */
     if (vif->vif_type == VIF_TYPE_PHYSICAL) {
         if (!pkt_src) {
-            if (rt.rtr_req.rtr_label_flags & VR_RT_PROXY_FLAG) {
+            if (rt.rtr_req.rtr_label_flags & VR_RT_ARP_PROXY_FLAG) {
                 goto proxy;
             }
         } else {
-            if (rt.rtr_req.rtr_label_flags & VR_RT_PROXY_FLAG) {
+            if (rt.rtr_req.rtr_label_flags & VR_RT_ARP_PROXY_FLAG) {
                 if (rt.rtr_req.rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG) {
                     rt.rtr_req.rtr_index = rt.rtr_req.rtr_nh_id;
                     rt.rtr_req.rtr_mac = src_mac;
@@ -185,6 +182,7 @@ vr_arp_response_type(unsigned short vrf, struct vr_packet *pkt,
         }
     }
 
+drop:
     *drop_reason = VP_DROP_ARP_NO_WHERE_TO_GO;
     return MR_DROP;
 

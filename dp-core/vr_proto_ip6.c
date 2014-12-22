@@ -71,7 +71,7 @@ vr_neighbor_response_type(unsigned short vrf, struct vr_packet *pkt,
     if (!nh)
         return MR_NOT_ME;
 
-    if (rt.rtr_req.rtr_label_flags & VR_RT_PROXY_FLAG)
+    if (rt.rtr_req.rtr_label_flags & VR_RT_ARP_PROXY_FLAG)
         return MR_PROXY;
 
     switch (nh->nh_type) {
