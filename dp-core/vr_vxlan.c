@@ -50,7 +50,7 @@ vr_vxlan_input(struct vrouter *router, struct vr_packet *pkt,
         goto fail;
     }
 
-    if (vr_pkt_type(pkt, 0) < 0) {
+    if (vr_pkt_type(pkt, 0, fmd) < 0) {
         drop_reason = VP_DROP_INVALID_PACKET;
         goto fail;
     }

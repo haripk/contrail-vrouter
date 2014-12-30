@@ -133,14 +133,10 @@ vr_arp_response_type(unsigned short vrf, struct vr_packet *pkt,
             }
         }
 
-        if (rt.rtr_req.rtr_label_flags & VR_RT_ARP_FLOOD_FLAG) {
-            if (stats)
-                stats->vrf_arp_virtual_flood++;
-            return MR_FLOOD;
-        }
+        if (stats)
+            stats->vrf_arp_virtual_flood++;
+        return MR_FLOOD;
 
-        /* Nothing to handle */
-        goto drop;
     }
 
     /*
@@ -195,7 +191,6 @@ vr_arp_response_type(unsigned short vrf, struct vr_packet *pkt,
         }
     }
 
-drop:
     *drop_reason = VP_DROP_ARP_NO_WHERE_TO_GO;
     return MR_DROP;
 
@@ -348,7 +343,8 @@ vr_handle_arp_reply(unsigned short vrf, struct vr_arp *sarp,
  * start from an offset from vp_data
  */
 int
-vr_pkt_type(struct vr_packet *pkt, unsigned short offset)
+vr_pkt_type(struct vr_packet *pkt, unsigned short offset,
+            struct vr_forwarding_md *fmd)
 {
     unsigned char *eth = pkt_data(pkt) + offset;
     unsigned short eth_proto;
@@ -370,6 +366,8 @@ vr_pkt_type(struct vr_packet *pkt, unsigned short offset)
         if (pkt_len < (pull_len + sizeof(*vlan)))
             return -1;
         vlan = (struct vr_vlan_hdr *)(eth + pull_len);
+        if (fmd && (fmd->fmd_vlan == VLAN_ID_INVALID))
+            fmd->fmd_vlan = vlan->vlan_tag & 0xFFF;
         eth_proto = ntohs(vlan->vlan_proto);
         pull_len += sizeof(*vlan);
     }
@@ -387,6 +385,10 @@ vr_arp_input(unsigned short vrf, struct vr_packet *pkt,
              struct vr_forwarding_md *fmd, int pkt_src)
 {
     struct vr_arp sarp;
+
+    /* If vlan tagged packet, we let the VM handle the ARP packets */
+    if (fmd->fmd_vlan != VLAN_ID_INVALID)
+        return 0;
 
     memcpy(&sarp, pkt_data(pkt), sizeof(struct vr_arp));
     switch (ntohs(sarp.arp_op)) {
@@ -462,7 +464,7 @@ vr_reinject_packet(struct vr_packet *pkt, struct vr_forwarding_md *fmd)
  */
 unsigned int
 vr_virtual_input(unsigned short vrf, struct vr_interface *vif,
-                       struct vr_packet *pkt, unsigned short vlan_id)
+                 struct vr_packet *pkt, unsigned short vlan_id)
 {
     struct vr_forwarding_md fmd;
 
@@ -475,7 +477,7 @@ vr_virtual_input(unsigned short vrf, struct vr_interface *vif,
         vr_mirror(vif->vif_router, vif->vif_mirror_id, pkt, &fmd);
     }
 
-    if (vr_pkt_type(pkt, 0) < 0) {
+    if (vr_pkt_type(pkt, 0, &fmd) < 0) {
         vif_drop_pkt(vif, pkt, 1);
         return 0;
     }
@@ -496,7 +498,11 @@ vr_fabric_input(struct vr_interface *vif, struct vr_packet *pkt,
     unsigned short pull_len;
     struct vr_forwarding_md fmd;
 
-    if (vr_pkt_type(pkt, 0) < 0) {
+    vr_init_forwarding_md(&fmd);
+    fmd.fmd_vlan = vlan_id;
+    fmd.fmd_dvrf = vif->vif_vrf;
+
+    if (vr_pkt_type(pkt, 0, &fmd) < 0) {
         vif_drop_pkt(vif, pkt, 1);
         return 0;
     }
@@ -506,9 +512,6 @@ vr_fabric_input(struct vr_interface *vif, struct vr_packet *pkt,
 
     pull_len = pkt_get_network_header_off(pkt) - pkt_head_space(pkt);
 
-    vr_init_forwarding_md(&fmd);
-    fmd.fmd_vlan = vlan_id;
-    fmd.fmd_dvrf = vif->vif_vrf;
 
     pkt_pull(pkt, pull_len);
     if (pkt->vp_type == VP_TYPE_IP || pkt->vp_type == VP_TYPE_IP6)

@@ -311,7 +311,7 @@ vr_mpls_input(struct vrouter *router, struct vr_packet *pkt,
                 l2_offset = VR_L2_MCAST_CTRL_DATA_LEN + VR_VXLAN_HDR_LEN;
         }
 
-        if (vr_pkt_type(pkt, l2_offset) < 0) {
+        if (vr_pkt_type(pkt, l2_offset, fmd) < 0) {
             drop_reason = VP_DROP_INVALID_PACKET;
             goto dropit;
         }

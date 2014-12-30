@@ -41,7 +41,7 @@ bool vr_l3_well_known_packet(unsigned short, struct vr_packet *);
 
 int vr_untag_pkt(struct vr_packet *);
 int vr_tag_pkt(struct vr_packet *, unsigned short);
-int vr_pkt_type(struct vr_packet *, unsigned short);
+int vr_pkt_type(struct vr_packet *, unsigned short, struct vr_forwarding_md *);
 
 int vr_trap(struct vr_packet *, unsigned short, unsigned short, void *);
 extern int vr_forward(struct vrouter *, unsigned short,
