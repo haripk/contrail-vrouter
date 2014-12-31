@@ -10,6 +10,7 @@
 
 #include <vr_datapath.h>
 #include <vr_ip_mtrie.h>
+#include <vr_bridge.h>
 
 #define SOURCE_LINK_LAYER_ADDRESS_OPTION    1
 #define TARGET_LINK_LAYER_ADDRESS_OPTION    2
@@ -19,6 +20,17 @@ struct vr_neighbor_option {
     uint8_t vno_length;
     uint8_t vno_value[0];
 } __attribute__((packed));
+
+
+static int
+vr_v6_prefix_is_ll(uint8_t prefix[])
+{
+    if ((prefix[0] == 0xFE) && (prefix[1] == 0x80)) {
+        return true;
+    }
+    return false;
+}
+
 
 /*
  * buffer is pointer to ip6 header, all values other than src, dst and
@@ -49,122 +61,6 @@ vr_icmp6_checksum(void *buffer, unsigned int bytes)
    return (uint16_t)total;
 }
 
-static mac_response_t
-vr_neighbor_response_type(unsigned short vrf, struct vr_packet *pkt,
-        struct vr_icmp *icmph)
-{
-    uint32_t rt_prefix[4];
-
-    struct vr_route_req rt;
-    struct vr_nexthop *nh;
-
-    rt.rtr_req.rtr_vrf_id = vrf;
-    rt.rtr_req.rtr_family = AF_INET6;
-    rt.rtr_req.rtr_prefix = (uint8_t *)&rt_prefix;
-    memcpy(rt.rtr_req.rtr_prefix, icmph->icmp_data, 16);
-    rt.rtr_req.rtr_prefix_size = 16;
-    rt.rtr_req.rtr_prefix_len = IP6_PREFIX_LEN;
-    rt.rtr_req.rtr_nh_id = 0;
-    rt.rtr_req.rtr_label_flags = 0;
-
-    nh = vr_inet_route_lookup(vrf, &rt);
-    if (!nh)
-        return MR_NOT_ME;
-
-    if (rt.rtr_req.rtr_label_flags & VR_RT_ARP_PROXY_FLAG)
-        return MR_PROXY;
-
-    switch (nh->nh_type) {
-    case NH_TUNNEL:
-        return MR_PROXY;
-
-    case  NH_COMPOSITE:
-        if ((nh->nh_flags & NH_FLAG_COMPOSITE_EVPN) ||
-                (nh->nh_flags & NH_FLAG_COMPOSITE_L2)) {
-            pkt->vp_nh = nh;
-            return MR_FLOOD;
-        }
-        break;
-
-    default:
-        break;
-    }
-
-    return MR_NOT_ME;
-}
-
-static void
-vr_icmp6_neighbor_input(struct vrouter *router, unsigned short vrf,
-        struct vr_packet *pkt, struct vr_forwarding_md *fmd)
-{
-    uint16_t *eth_proto;
-    mac_response_t type;
-
-    struct vr_interface *vif = pkt->vp_if;
-
-    struct vr_neighbor_option *nopt;
-    struct vr_ip6 *ip6 = (struct vr_ip6 *)pkt_network_header(pkt);
-    struct vr_icmp *icmph = (struct vr_icmp *)pkt_data(pkt);
-    struct vr_eth *eth;
-
-    type = vr_neighbor_response_type(vrf, pkt, icmph);
-    switch (type) {
-    case MR_FLOOD:
-        vr_preset(pkt);
-        nh_output(vrf, pkt, pkt->vp_nh, fmd);
-        return;
-
-    case MR_PROXY:
-        break;
-
-    case MR_NOT_ME:
-    default:
-        vr_pfree(pkt, VP_DROP_ARP_NO_WHERE_TO_GO);
-        return;
-    }
-
-    memcpy(ip6->ip6_dst, ip6->ip6_src, sizeof(ip6->ip6_src));
-    memcpy(ip6->ip6_src, &icmph->icmp_data, sizeof(ip6->ip6_src));
-    /* Mimic a different source ip */
-    ip6->ip6_src[15] = 0xFF;
-
-    /* Update ICMP header and options */
-    icmph->icmp_type = VR_ICMP6_TYPE_NEIGH_AD;
-    icmph->icmp_eid = htons(0x4000);
-    nopt = (struct vr_neighbor_option *)(icmph->icmp_data +
-            VR_IP6_ADDRESS_LEN);
-    nopt->vno_type = TARGET_LINK_LAYER_ADDRESS_OPTION;
-    /* length in units of 8 octets */
-    nopt->vno_length = (sizeof(struct vr_neighbor_option) + VR_ETHER_ALEN) / 8;
-    memcpy(nopt->vno_value, vif->vif_mac, VR_ETHER_ALEN);
-
-    icmph->icmp_csum =
-        ~(vr_icmp6_checksum(ip6, sizeof(struct vr_ip6) +
-                    sizeof(struct vr_icmp) + VR_IP6_ADDRESS_LEN +
-                    nopt->vno_length));
-
-    vr_preset(pkt);
-    eth = (struct vr_eth *)pkt_data(pkt);
-    /* Update Ethernet headr */
-    memcpy(eth->eth_dmac, eth->eth_smac, VR_ETHER_ALEN);
-    memcpy(eth->eth_smac, vif->vif_mac, VR_ETHER_ALEN);
-    eth_proto = &eth->eth_proto;
-    if (vif_is_vlan(vif)) {
-        if (vif->vif_ovlan_id) {
-            *eth_proto = htons(VR_ETH_PROTO_VLAN);
-            eth_proto++;
-            *eth_proto = htons(vif->vif_ovlan_id);
-            eth_proto++;
-        }
-    }
-    *eth_proto = htons(VR_ETH_PROTO_IP6);
-    /* Respond back directly*/
-    vif->vif_tx(vif, pkt);
-
-    return;
-}
-
-
 static bool
 vr_icmp6_input(struct vrouter *router, unsigned short vrf,
         struct vr_packet *pkt, struct vr_forwarding_md *fmd)
@@ -174,9 +70,6 @@ vr_icmp6_input(struct vrouter *router, unsigned short vrf,
 
     icmph = (struct vr_icmp *)pkt_data(pkt);
     switch (icmph->icmp_type) {
-    case VR_ICMP6_TYPE_NEIGH_SOL:
-        vr_icmp6_neighbor_input(router, vrf, pkt, fmd);
-        break;
 
     case VR_ICMP6_TYPE_ROUTER_SOL:
         vr_trap(pkt, vrf, AGENT_TRAP_L3_PROTOCOLS, NULL);
@@ -230,4 +123,128 @@ vr_ip6_input(struct vrouter *router, unsigned short vrf,
     }
 
     return vr_forward(router, vrf, pkt, fmd);
+}
+
+int
+vr_ip6_neighbor_solicitation_input(unsigned short vrf, struct vr_packet *pkt,
+                                   struct vr_forwarding_md *fmd, int pkt_src)
+{
+    struct vr_ip6 *ip6;
+    struct vr_neighbor_option *nopt;
+    struct vr_icmp *icmph;
+    char dst_mac[VR_ETHER_ALEN], src_mac[VR_ETHER_ALEN];
+    mac_response_t ndisc_result;
+    uint32_t rt_prefix[4], pull_len;
+    struct vr_route_req rt;
+    int drop_reason;
+    struct vr_eth *eth;
+
+    if (pkt->vp_type != VP_TYPE_IP6)
+        return 0;
+
+    ip6 = (struct vr_ip6 *)pkt_data(pkt);
+    if (!ip6)
+        goto drop;
+
+    if (ip6->ip6_nxt != VR_IP_PROTO_ICMP6)
+        return 0;
+
+    pull_len = sizeof(*ip6);
+    icmph = (struct vr_icmp *)(pkt_data(pkt) + pull_len);
+    if (!icmph)
+        goto drop;
+
+    if (icmph->icmp_type != VR_ICMP6_TYPE_NEIGH_SOL) {
+        pkt_push(pkt, pull_len);
+        return 0;
+    }
+
+    pull_len += sizeof(*icmph) + VR_IP6_ADDRESS_LEN;
+    nopt = (struct vr_neighbor_option *)(pkt_data(pkt) + pull_len);
+    if (!nopt)
+        goto drop;
+
+    if (nopt->vno_type != SOURCE_LINK_LAYER_ADDRESS_OPTION) {
+        pkt_push(pkt, pull_len);
+        return 0;
+    }
+
+    VR_MAC_COPY(dst_mac, nopt->vno_value);
+    /* We let DAD packets bridged */
+    if (IS_MAC_ZERO(dst_mac)) {
+        pkt_push(pkt, pull_len);
+        return 0;
+    }
+
+    rt.rtr_req.rtr_vrf_id = vrf;
+    rt.rtr_req.rtr_family = AF_INET6;
+    rt.rtr_req.rtr_prefix = (uint8_t *)&rt_prefix;
+    memcpy(rt.rtr_req.rtr_prefix, icmph->icmp_data, 16);
+    rt.rtr_req.rtr_prefix_size = 16;
+    rt.rtr_req.rtr_prefix_len = IP6_PREFIX_LEN;
+    rt.rtr_req.rtr_nh_id = 0;
+    rt.rtr_req.rtr_label_flags = 0;
+
+    vr_inet_route_get(vrf, &rt);
+
+    ndisc_result = vr_get_l3_stitching_info(pkt, &rt, fmd, src_mac,
+                                          dst_mac, pkt_src, &drop_reason);
+    if (ndisc_result == MR_PROXY) {
+        memcpy(ip6->ip6_dst, ip6->ip6_src, sizeof(ip6->ip6_src));
+        memcpy(ip6->ip6_src, &icmph->icmp_data, sizeof(ip6->ip6_src));
+        /* Mimic a different source ip */
+        ip6->ip6_src[15] = 0xFF;
+
+        /* Update ICMP header and options */
+        icmph->icmp_type = VR_ICMP6_TYPE_NEIGH_AD;
+        icmph->icmp_eid = htons(0x4000);
+
+        /* length in units of 8 octets */
+        nopt->vno_type = TARGET_LINK_LAYER_ADDRESS_OPTION;
+        nopt->vno_length = (sizeof(struct vr_neighbor_option) + VR_ETHER_ALEN) / 8;
+        VR_MAC_COPY(nopt->vno_value, src_mac);
+
+        icmph->icmp_csum =
+        ~(vr_icmp6_checksum(ip6, sizeof(struct vr_ip6) +
+                    sizeof(struct vr_icmp) + VR_IP6_ADDRESS_LEN +
+                    nopt->vno_length));
+
+
+        eth = (struct vr_eth *)pkt_push(pkt, VR_ETHER_HLEN);
+
+        /* Update Ethernet headr */
+        VR_MAC_COPY(eth->eth_dmac, dst_mac);
+        VR_MAC_COPY(eth->eth_smac, src_mac);
+        eth->eth_proto = htons(VR_ETH_PROTO_IP6);
+    }
+
+    return vr_handle_mac_response(pkt, fmd, ndisc_result, drop_reason);
+
+drop:
+    vr_pfree(pkt, VP_DROP_INVALID_PACKET);
+    return 1;
+}
+
+int
+vr_ip6_neighbor_solicitation(struct vr_packet *pkt)
+{
+    struct vr_ip6 *ip6;
+    struct vr_icmp *icmph;
+
+    if (pkt->vp_type != VP_TYPE_IP6)
+        return 0;
+
+    ip6 = (struct vr_ip6 *)pkt_data(pkt);
+    if (ip6->ip6_nxt != VR_IP_PROTO_ICMP6)
+        return 0;
+
+    /* We dont handle link local neighbour solicitation */
+    if (vr_v6_prefix_is_ll(ip6->ip6_dst))
+        return 0;
+
+    icmph = (struct vr_icmp *)(pkt_data(pkt) + sizeof(struct vr_ip6));
+    if (icmph->icmp_type == VR_ICMP6_TYPE_NEIGH_SOL)
+        return 1;
+
+    return 0;
 }

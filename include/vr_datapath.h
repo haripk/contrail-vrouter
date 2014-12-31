@@ -49,4 +49,10 @@ extern int vr_forward(struct vrouter *, unsigned short,
 
 int vr_tor_input(unsigned short , struct vr_packet *,
                  struct vr_forwarding_md *);
+mac_response_t vr_get_l3_stitching_info(struct vr_packet *, struct vr_route_req *,
+                         struct vr_forwarding_md *, char *, char *, int , int *);
+int vr_handle_mac_response(struct vr_packet *, struct vr_forwarding_md *,
+                                mac_response_t , int );
+
+
 #endif /* __VR_DATAPATH_H__ */

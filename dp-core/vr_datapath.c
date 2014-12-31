@@ -32,82 +32,18 @@ vr_v6_prefix_is_ll(uint8_t prefix[])
     return false;
 }
 
-static mac_response_t
-vr_arp_response_type(unsigned short vrf, struct vr_packet *pkt,
-                         struct vr_arp *arp, char *src_mac, int pkt_src,
-                         int *drop_reason)
+mac_response_t
+vr_get_l3_stitching_info(struct vr_packet *pkt, struct vr_route_req *rt,
+                         struct vr_forwarding_md *fmd, char *src_mac,
+                         char *dst_mac, int pkt_ingress_type, int *drop_reason)
 {
-    struct vr_route_req rt;
-    struct vr_nexthop *nh;
-    uint32_t rt_prefix;
-    bool grat_arp;
-    struct vr_vrf_stats *stats;
     struct vr_interface *vif = pkt->vp_if;
+    struct vr_nexthop *nh;
+    struct vr_vrf_stats *stats;
 
-    stats = vr_inet_vrf_stats(vrf, pkt->vp_cpu);
-
-    *drop_reason = VP_DROP_INVALID_ARP;
-    if (vif_mode_xconnect(vif))
-        return MR_XCONNECT;
-
-    /*
-     * some OSes send arp queries with zero SIP before taking ownership
-     * of the DIP : Xconnect if Fabric or Vhost else let it reach
-     * the required destination
-     */
-    if (!arp->arp_spa) {
-        if ((vif->vif_type == VIF_TYPE_HOST) ||
-                ((vif->vif_type == VIF_TYPE_PHYSICAL) && (!pkt_src)))
-            return MR_XCONNECT;
-    }
-
-    if (vif->vif_type == VIF_TYPE_XEN_LL_HOST ||
-            vif->vif_type == VIF_TYPE_GATEWAY)
-        goto proxy;
-
-    /* All link local IP's have to be proxied */
-    if (vif->vif_type == VIF_TYPE_HOST) {
-        if (IS_LINK_LOCAL_IP(arp->arp_dpa))
-            goto proxy;
-        return MR_XCONNECT;
-    }
-
-    grat_arp = vr_grat_arp(arp);
-
-    /*
-     * Grat ARP from Fabric need to be cross connected to Vhost
-     * and Flooded Flooded if received from another compute node
-     * or BMS
-     */
-    if (grat_arp && (vif->vif_type == VIF_TYPE_PHYSICAL)) {
-        if (!pkt_src)
-            return MR_TRAP_X;
-        else
-            return MR_FLOOD;
-    }
-
-    memset(&rt, 0, sizeof(rt));
-    rt.rtr_req.rtr_vrf_id = vrf;
-    rt.rtr_req.rtr_prefix = (uint8_t*)&rt_prefix;
-    *(uint32_t*)rt.rtr_req.rtr_prefix = (arp->arp_dpa);
-    rt.rtr_req.rtr_prefix_size = 4;
-    rt.rtr_req.rtr_prefix_len = 32;
-
-    vr_inet_route_get(vrf, &rt);
+    stats = vr_inet_vrf_stats(fmd->fmd_dvrf, pkt->vp_cpu);
 
     if (vif_is_virtual(vif)) {
-
-        /*
-         * Grat ARP from VM need to be Trapped to Agent if Trap Set
-         * else need to be flooded
-         */
-        if (grat_arp) {
-            if (rt.rtr_req.rtr_label_flags & VR_RT_ARP_TRAP_FLAG)
-                return MR_TRAP;
-            else
-                return MR_FLOOD;
-        }
-
         /*
          * Request from VM:
          * If Proxy Bit Set -
@@ -117,16 +53,16 @@ vr_arp_response_type(unsigned short vrf, struct vr_packet *pkt,
          * IF route is found and not proxied : Flood
          *
          */
-        if (rt.rtr_req.rtr_label_flags & VR_RT_ARP_PROXY_FLAG) {
-            if (!(rt.rtr_req.rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG)) {
+        if (rt->rtr_req.rtr_label_flags & VR_RT_ARP_PROXY_FLAG) {
+            if (!(rt->rtr_req.rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG)) {
                 if (stats)
                     stats->vrf_arp_virtual_proxy++;
                 goto proxy;
             }
 
-            rt.rtr_req.rtr_index = rt.rtr_req.rtr_nh_id;
-            rt.rtr_req.rtr_mac = src_mac;
-            if (vr_bridge_lookup(vrf, &rt)) {
+            rt->rtr_req.rtr_index = rt->rtr_req.rtr_nh_id;
+            rt->rtr_req.rtr_mac = src_mac;
+            if (vr_bridge_lookup(fmd->fmd_dvrf, rt)) {
                 if (stats)
                     stats->vrf_arp_virtual_stitch++;
                 goto stitch;
@@ -148,47 +84,41 @@ vr_arp_response_type(unsigned short vrf, struct vr_packet *pkt,
      *  - else : Flood
      */
     if (vif->vif_type == VIF_TYPE_PHYSICAL) {
-        if (!pkt_src) {
-            if (rt.rtr_req.rtr_label_flags & VR_RT_ARP_PROXY_FLAG) {
-                goto proxy;
-            }
-        } else {
-            if (rt.rtr_req.rtr_label_flags & VR_RT_ARP_PROXY_FLAG) {
-                if (rt.rtr_req.rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG) {
-                    rt.rtr_req.rtr_index = rt.rtr_req.rtr_nh_id;
-                    rt.rtr_req.rtr_mac = src_mac;
-                    if ((nh = vr_bridge_lookup(vrf, &rt))) {
+        if (rt->rtr_req.rtr_label_flags & VR_RT_ARP_PROXY_FLAG) {
+            if (rt->rtr_req.rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG) {
+                rt->rtr_req.rtr_index = rt->rtr_req.rtr_nh_id;
+                rt->rtr_req.rtr_mac = src_mac;
+                if ((nh = vr_bridge_lookup(fmd->fmd_dvrf, rt))) {
 
-                        /* Tor/Non Tor case :
-                         *   Stitch the Mac if VM is hosted in the
-                         *   same compute node
-                         * Tor Case :
-                         *   Stitch the Mac if there is a tunnel to
-                         *   other compute node
-                         */
-                        if ((nh->nh_type == NH_ENCAP) ||
-                                ((pkt_src == PKT_SRC_TOR_REPL_TREE) &&
+                    /* Tor/Non Tor case :
+                     *   Stitch the Mac if VM is hosted in the
+                     *   same compute node
+                     * Tor Case :
+                     *   Stitch the Mac if there is a tunnel to
+                     *   other compute node
+                     */
+                    if ((nh->nh_type == NH_ENCAP) ||
+                            ((pkt_ingress_type == PKT_SRC_TOR_REPL_TREE) &&
                                  nh->nh_type == NH_TUNNEL)) {
-                            if (stats)
-                                stats->vrf_arp_physical_stitch++;
-                            goto stitch;
-                        }
+                        if (stats)
+                            stats->vrf_arp_physical_stitch++;
+                        goto stitch;
                     }
-                } else {
-                    nh = rt.rtr_nh;
-                    if (pkt_src == PKT_SRC_TOR_REPL_TREE) {
-                        if (nh->nh_type == NH_RCV) {
-                            if (stats)
-                                stats->vrf_arp_tor_proxy++;
-                            goto proxy;
-                        }
+                }
+            } else {
+                nh = rt->rtr_nh;
+                if (pkt_ingress_type == PKT_SRC_TOR_REPL_TREE) {
+                    if (nh->nh_type == NH_ENCAP) {
+                        if (stats)
+                            stats->vrf_arp_tor_proxy++;
+                        goto proxy;
                     }
                 }
             }
-            if (stats)
-                stats->vrf_arp_physical_flood++;
-            return MR_FLOOD;
         }
+        if (stats)
+            stats->vrf_arp_physical_flood++;
+        return MR_FLOOD;
     }
 
     *drop_reason = VP_DROP_ARP_NO_WHERE_TO_GO;
@@ -196,70 +126,204 @@ vr_arp_response_type(unsigned short vrf, struct vr_packet *pkt,
 
 proxy:
     VR_MAC_COPY(src_mac, vif->vif_mac);
+
 stitch:
+    memset(rt, 0, sizeof(*rt));
+    rt->rtr_req.rtr_mac_size = VR_ETHER_ALEN;
+    rt->rtr_req.rtr_mac = dst_mac;
+    rt->rtr_req.rtr_vrf_id = fmd->fmd_dvrf;
+    if (!vr_bridge_lookup(fmd->fmd_dvrf, rt)) {
+        *drop_reason = VP_DROP_ARP_REPLY_NO_ROUTE;
+        return MR_DROP;
+    }
+    nh = rt->rtr_nh;
+    if ((!nh) || ((nh->nh_type != NH_ENCAP) &&
+                    (nh->nh_type != NH_TUNNEL))) {
+        *drop_reason = VP_DROP_ARP_REPLY_NO_ROUTE;
+        return MR_DROP;
+    }
+    if (rt->rtr_req.rtr_label_flags & VR_RT_LABEL_VALID_FLAG)
+        fmd->fmd_label = rt->rtr_req.rtr_label;
+    pkt->vp_nh = nh;
     return MR_PROXY;
 }
 
+int
+vr_handle_mac_response(struct vr_packet *pkt, struct vr_forwarding_md *fmd,
+                        mac_response_t result, int drop_reason)
+{
+    struct vr_packet *cloned_pkt;
+
+    switch (result) {
+    case MR_PROXY:
+        pkt->vp_nh->nh_arp_response(fmd->fmd_dvrf, pkt, pkt->vp_nh, fmd);
+        break;
+    case MR_XCONNECT:
+        vif_xconnect(pkt->vp_if, pkt);
+        break;
+    case MR_TRAP_X:
+        cloned_pkt = vr_pclone(pkt);
+        if (cloned_pkt) {
+            vr_preset(cloned_pkt);
+            vif_xconnect(pkt->vp_if, cloned_pkt);
+        }
+        vr_trap(pkt, fmd->fmd_dvrf, AGENT_TRAP_ARP, NULL);
+        break;
+    case MR_TRAP:
+        vr_preset(pkt);
+        vr_trap(pkt, fmd->fmd_dvrf, AGENT_TRAP_ARP, NULL);
+        break;
+    case MR_FLOOD:
+        return 0;
+    case MR_DROP:
+    default:
+        vr_pfree(pkt, drop_reason);
+    }
+
+    return 1;
+}
+
 static int
-vr_handle_arp_request(unsigned short vrf, struct vr_arp *sarp,
-                      struct vr_packet *pkt, struct vr_forwarding_md *fmd,
-                      int pkt_src)
+vr_handle_arp_request(struct vr_arp *sarp, struct vr_packet *pkt,
+                      struct vr_forwarding_md *fmd, int arp_ingress_type)
 {
     int drop_reason;
-    unsigned int dpa;
     mac_response_t arp_result;
-
+    bool grat_arp, l3_proxy = false;
+    struct vr_route_req rt;
+    uint32_t rt_prefix, dpa;
     struct vr_eth *eth;
     struct vr_arp *arp;
-    struct vr_nexthop *nh;
-    struct vr_route_req rt;
-    struct vr_packet *cloned_pkt;
     struct vr_interface *vif = pkt->vp_if;
-
     char arp_src_mac[VR_ETHER_ALEN];
+    struct vr_nexthop *nh;
 
-    arp_result = vr_arp_response_type(vrf, pkt, sarp, arp_src_mac,
-                                          pkt_src, &drop_reason);
-    switch (arp_result) {
-    case MR_PROXY:
 
-        memset(&rt, 0, sizeof(rt));
-        rt.rtr_req.rtr_vrf_id = vrf;
+    if (vif_mode_xconnect(vif)) {
+        arp_result = MR_XCONNECT;
+        goto result;
+    }
 
+    /*
+     * some OSes send arp queries with zero SIP before taking ownership
+     * of the DIP : Xconnect if Fabric or Vhost else let it reach
+     * the required destination
+     */
+    if (!sarp->arp_spa) {
         if ((vif->vif_type == VIF_TYPE_HOST) ||
-                ((vif->vif_type == VIF_TYPE_PHYSICAL) && (!pkt_src))) {
+            ((vif->vif_type == VIF_TYPE_PHYSICAL) && (!arp_ingress_type))) {
+            arp_result = MR_XCONNECT;
+            goto result;
+        }
+    }
 
+    if (vif->vif_type == VIF_TYPE_XEN_LL_HOST ||
+            vif->vif_type == VIF_TYPE_GATEWAY) {
+        arp_result = MR_PROXY;
+        VR_MAC_COPY(arp_src_mac, vif->vif_mac);
+        goto result;
+    }
+
+    /* All link local IP's have to be proxied */
+    if (vif->vif_type == VIF_TYPE_HOST) {
+        if (IS_LINK_LOCAL_IP(sarp->arp_dpa)) {
+            l3_proxy = true;
+            arp_result = MR_PROXY;
+        } else {
+            arp_result = MR_XCONNECT;
+        }
+        goto result;
+    }
+
+    grat_arp = vr_grat_arp(sarp);
+    /*
+     * Grat ARP from Fabric need to be cross connected to Vhost
+     * and Flooded Flooded if received from another compute node
+     * or BMS
+     */
+    if (grat_arp && (vif->vif_type == VIF_TYPE_PHYSICAL)) {
+        if (!arp_ingress_type) {
+            arp_result = MR_TRAP_X;
+        } else {
+            arp_result = MR_FLOOD;
+        }
+        goto result;
+    }
+
+    memset(&rt, 0, sizeof(rt));
+    rt.rtr_req.rtr_vrf_id = fmd->fmd_dvrf;
+    rt.rtr_req.rtr_prefix = (uint8_t*)&rt_prefix;
+    *(uint32_t*)rt.rtr_req.rtr_prefix = (sarp->arp_dpa);
+    rt.rtr_req.rtr_prefix_size = 4;
+    rt.rtr_req.rtr_prefix_len = 32;
+
+    vr_inet_route_get(fmd->fmd_dvrf, &rt);
+
+    if (vif_is_virtual(vif)) {
+        /*
+         * Grat ARP from VM need to be Trapped to Agent if Trap Set
+         * else need to be flooded
+         */
+        if (grat_arp) {
+            if (rt.rtr_req.rtr_label_flags & VR_RT_ARP_TRAP_FLAG)
+                arp_result = MR_TRAP;
+            else
+                arp_result = MR_FLOOD;
+            goto result;
+        }
+    }
+
+    if (vif->vif_type == VIF_TYPE_PHYSICAL) {
+        if (!arp_ingress_type) {
+            if (rt.rtr_req.rtr_label_flags & VR_RT_ARP_PROXY_FLAG) {
+                l3_proxy = true;
+                arp_result = MR_PROXY;
+            } else {
+                arp_result = MR_DROP;
+                drop_reason = VP_DROP_ARP_NO_WHERE_TO_GO;
+            }
+            goto result;
+        }
+    }
+
+    arp_result = vr_get_l3_stitching_info(pkt, &rt, fmd, arp_src_mac,
+                                          sarp->arp_sha, arp_ingress_type,
+                                          &drop_reason);
+result:
+    if (arp_result == MR_PROXY) {
+        if (l3_proxy) {
+            VR_MAC_COPY(arp_src_mac, vif->vif_mac);
+            memset(&rt, 0, sizeof(rt));
+            rt.rtr_req.rtr_vrf_id = fmd->fmd_dvrf;
             rt.rtr_req.rtr_prefix = (uint8_t*)&dpa;
             *(uint32_t*)rt.rtr_req.rtr_prefix = (sarp->arp_spa);
             rt.rtr_req.rtr_prefix_size = 4;
             rt.rtr_req.rtr_prefix_len = 32;
 
-            nh = vr_inet_route_lookup(vrf, &rt);
+            nh = vr_inet_route_lookup(fmd->fmd_dvrf, &rt);
             if ((!nh) || ((nh->nh_type != NH_ENCAP) &&
-                    (nh->nh_type != NH_RCV) && (nh->nh_type != NH_RESOLVE))) {
-                vr_pfree(pkt, VP_DROP_ARP_REPLY_NO_ROUTE);
-                return 1;
+                   (nh->nh_type != NH_RCV) && (nh->nh_type != NH_RESOLVE))) {
+                drop_reason = VP_DROP_ARP_REPLY_NO_ROUTE;
+                arp_result = MR_DROP;
+                goto done;
+            } else {
+                VR_MAC_COPY(arp_src_mac, vif->vif_mac);
+                pkt->vp_nh = nh;
             }
-        } else {
-            rt.rtr_req.rtr_mac_size = VR_ETHER_ALEN;
-            rt.rtr_req.rtr_mac = sarp->arp_sha;
-            if (!vr_bridge_lookup(vrf, &rt)) {
-                vr_pfree(pkt, VP_DROP_ARP_REPLY_NO_ROUTE);
-                return 1;
-            }
-            nh = rt.rtr_nh;
-            if ((!nh) || ((nh->nh_type != NH_ENCAP) &&
-                    (nh->nh_type != NH_TUNNEL))) {
-                vr_pfree(pkt, VP_DROP_ARP_REPLY_NO_ROUTE);
-                return 1;
-            }
-            if (rt.rtr_req.rtr_label_flags & VR_RT_LABEL_VALID_FLAG)
-                fmd->fmd_label = rt.rtr_req.rtr_label;
         }
-
         pkt_reset(pkt);
 
-        eth = (struct vr_eth *)pkt_data(pkt);
+        /* Reserve enough headspace to add tunnel headers so that packet
+         * does not get expanded later
+         */
+        eth = (struct vr_eth *)pkt_reserve_head_space(pkt,
+                                    VROUTER_L2_OVERLAY_LEN);
+        if (!eth) {
+            drop_reason = VP_DROP_HEAD_SPACE_RESERVE_FAIL;
+            arp_result = MR_DROP;
+            goto done;
+        }
+
         memcpy(eth->eth_dmac, sarp->arp_sha, VR_ETHER_ALEN);
         memcpy(eth->eth_smac, arp_src_mac, VR_ETHER_ALEN);
         eth->eth_proto = htons(VR_ETH_PROTO_ARP);
@@ -275,32 +339,9 @@ vr_handle_arp_request(unsigned short vrf, struct vr_arp *sarp,
 
         memcpy(arp, sarp, sizeof(*sarp));
         pkt_pull_tail(pkt, sizeof(*arp));
-
-        nh->nh_arp_response(vrf, pkt, nh, fmd);
-        break;
-    case MR_XCONNECT:
-        vif_xconnect(vif, pkt);
-        break;
-    case MR_TRAP_X:
-        cloned_pkt = vr_pclone(pkt);
-        if (cloned_pkt) {
-            vr_preset(cloned_pkt);
-            vif_xconnect(vif, cloned_pkt);
-        }
-        vr_trap(pkt, vrf, AGENT_TRAP_ARP, NULL);
-        break;
-    case MR_TRAP:
-        vr_preset(pkt);
-        vr_trap(pkt, vrf, AGENT_TRAP_ARP, NULL);
-        break;
-    case MR_FLOOD:
-        return 0;
-    case MR_DROP:
-    default:
-        vr_pfree(pkt, drop_reason);
     }
-
-    return 1;
+done:
+    return vr_handle_mac_response(pkt, fmd, arp_result, drop_reason);
 }
 
 /*
@@ -309,8 +350,8 @@ vr_handle_arp_request(unsigned short vrf, struct vr_arp *sarp,
  * from fabric needs to be Xconnected and sent to agent
  */
 static int
-vr_handle_arp_reply(unsigned short vrf, struct vr_arp *sarp,
-                    struct vr_packet *pkt, struct vr_forwarding_md *fmd)
+vr_handle_arp_reply(struct vr_arp *sarp, struct vr_packet *pkt,
+                    struct vr_forwarding_md *fmd)
 {
     struct vr_interface *vif = pkt->vp_if;
     struct vr_packet *cloned_pkt;
@@ -321,7 +362,7 @@ vr_handle_arp_reply(unsigned short vrf, struct vr_arp *sarp,
     if (vif->vif_type != VIF_TYPE_PHYSICAL) {
         if (vif_is_virtual(vif)) {
             vr_preset(pkt);
-            return vr_trap(pkt, vrf, AGENT_TRAP_ARP, NULL);
+            return vr_trap(pkt, fmd->fmd_dvrf, AGENT_TRAP_ARP, NULL);
         }
         vr_pfree(pkt, VP_DROP_INVALID_IF);
         return 0;
@@ -334,7 +375,7 @@ vr_handle_arp_reply(unsigned short vrf, struct vr_arp *sarp,
         vif_xconnect(vif, cloned_pkt);
     }
 
-    return vr_trap(pkt, vrf, AGENT_TRAP_ARP, NULL);
+    return vr_trap(pkt, fmd->fmd_dvrf, AGENT_TRAP_ARP, NULL);
 }
 
 /*
@@ -382,7 +423,7 @@ vr_pkt_type(struct vr_packet *pkt, unsigned short offset,
 
 int
 vr_arp_input(unsigned short vrf, struct vr_packet *pkt,
-             struct vr_forwarding_md *fmd, int pkt_src)
+             struct vr_forwarding_md *fmd, int arp_ingress_type)
 {
     struct vr_arp sarp;
 
@@ -391,13 +432,14 @@ vr_arp_input(unsigned short vrf, struct vr_packet *pkt,
         return 0;
 
     memcpy(&sarp, pkt_data(pkt), sizeof(struct vr_arp));
+    fmd->fmd_dvrf = vrf;
     switch (ntohs(sarp.arp_op)) {
     case VR_ARP_OP_REQUEST:
-        return vr_handle_arp_request(vrf, &sarp, pkt, fmd, pkt_src);
+        return vr_handle_arp_request(&sarp, pkt, fmd, arp_ingress_type);
         break;
 
     case VR_ARP_OP_REPLY:
-        vr_handle_arp_reply(vrf, &sarp, pkt, fmd);
+        vr_handle_arp_reply(&sarp, pkt, fmd);
         break;
 
     default:
@@ -578,10 +620,8 @@ vr_l3_well_known_packet(unsigned short vrf, struct vr_packet *pkt)
                 icmph = (struct vr_icmp *)((char *)ip6 +
                         sizeof(struct vr_ip6));
             }
-            if (icmph && (icmph->icmp_type == VR_ICMP6_TYPE_NEIGH_SOL)
-                          && vr_v6_prefix_is_ll(icmph->icmp_data)) {
+            if (icmph && (icmph->icmp_type == VR_ICMP6_TYPE_NEIGH_SOL))
                 return false;
-            }
         }
         return true;
     }

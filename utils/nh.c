@@ -181,9 +181,10 @@ vr_nexthop_req_process(void *s_req)
     else 
         strcpy(fam, "N/A");
 
-    printf("Id:%03d  Type:%-8s  Fmly:%8s  Flags:%s  Rid:%d  Ref_cnt:%d\n", 
+    printf("Id:%03d  Type:%-8s  Fmly:%8s  Flags:%s  Rid:%d  Ref_cnt:%d Vrf:%d\n",
                 req->nhr_id, nh_type(req->nhr_type), fam,
-                nh_flags(req->nhr_flags, req->nhr_type, flags_mem), req->nhr_rid, req->nhr_ref_cnt);
+                nh_flags(req->nhr_flags, req->nhr_type, flags_mem),
+                req->nhr_rid, req->nhr_ref_cnt, req->nhr_vrf);
 
     if (req->nhr_type == NH_RCV)
         printf("\tOif:%d\n", req->nhr_encap_oif_id);
