@@ -313,11 +313,7 @@ result:
         }
         pkt_reset(pkt);
 
-        /* Reserve enough headspace to add tunnel headers so that packet
-         * does not get expanded later
-         */
-        eth = (struct vr_eth *)pkt_reserve_head_space(pkt,
-                                    VROUTER_L2_OVERLAY_LEN);
+        eth = (struct vr_eth *)pkt_data(pkt);
         if (!eth) {
             drop_reason = VP_DROP_HEAD_SPACE_RESERVE_FAIL;
             arp_result = MR_DROP;
