@@ -27,6 +27,7 @@
 #define VR_GRE_FLAG_CSUM        (ntohs(0x8000))
 #define VR_GRE_FLAG_KEY         (ntohs(0x2000)) 
 #define VR_DHCP_SRC_PORT        68
+#define VR_DHCP6_SRC_PORT       546
 
 /* Size of basic GRE header */
 #define VR_GRE_BASIC_HDR_LEN    4

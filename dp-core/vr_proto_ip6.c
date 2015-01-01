@@ -149,6 +149,10 @@ vr_ip6_neighbor_solicitation_input(unsigned short vrf, struct vr_packet *pkt,
     if (ip6->ip6_nxt != VR_IP_PROTO_ICMP6)
         return 0;
 
+    /* Link local neighbour discovery is bridged */
+    if (vr_v6_prefix_is_ll(ip6->ip6_dst))
+        return 0;
+
     pull_len = sizeof(*ip6);
     icmph = (struct vr_icmp *)(pkt_data(pkt) + pull_len);
     if (!icmph)
@@ -223,28 +227,4 @@ vr_ip6_neighbor_solicitation_input(unsigned short vrf, struct vr_packet *pkt,
 drop:
     vr_pfree(pkt, VP_DROP_INVALID_PACKET);
     return 1;
-}
-
-int
-vr_ip6_neighbor_solicitation(struct vr_packet *pkt)
-{
-    struct vr_ip6 *ip6;
-    struct vr_icmp *icmph;
-
-    if (pkt->vp_type != VP_TYPE_IP6)
-        return 0;
-
-    ip6 = (struct vr_ip6 *)pkt_data(pkt);
-    if (ip6->ip6_nxt != VR_IP_PROTO_ICMP6)
-        return 0;
-
-    /* We dont handle link local neighbour solicitation */
-    if (vr_v6_prefix_is_ll(ip6->ip6_dst))
-        return 0;
-
-    icmph = (struct vr_icmp *)(pkt_data(pkt) + sizeof(struct vr_ip6));
-    if (icmph->icmp_type == VR_ICMP6_TYPE_NEIGH_SOL)
-        return 1;
-
-    return 0;
 }

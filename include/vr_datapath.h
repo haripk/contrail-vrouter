@@ -37,7 +37,9 @@ extern void vr_ip_update_csum(struct vr_packet *, unsigned int,
                 unsigned int);
 extern uint16_t vr_icmp6_checksum(void *, unsigned int);
 
-bool vr_l3_well_known_packet(unsigned short, struct vr_packet *);
+bool vr_ip_well_known_packet(struct vr_packet *);
+bool vr_ip6_well_known_packet(struct vr_packet *);
+bool vr_ip6_dhcp_packet(struct vr_packet *);
 
 int vr_untag_pkt(struct vr_packet *);
 int vr_tag_pkt(struct vr_packet *, unsigned short);

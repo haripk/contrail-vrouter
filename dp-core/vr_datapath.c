@@ -32,6 +32,12 @@ vr_v6_prefix_is_ll(uint8_t prefix[])
     return false;
 }
 
+/*
+ * src_mac is the mac that should be sent in ARP response which could be
+ * the result of stithcing/proxy
+ * dst_mac is the mac of he ARP request that we received
+ * pkt_ingress_type identifies who is the source of ARP
+ */
 mac_response_t
 vr_get_l3_stitching_info(struct vr_packet *pkt, struct vr_route_req *rt,
                          struct vr_forwarding_md *fmd, char *src_mac,
@@ -187,7 +193,7 @@ static int
 vr_handle_arp_request(struct vr_arp *sarp, struct vr_packet *pkt,
                       struct vr_forwarding_md *fmd, int arp_ingress_type)
 {
-    int drop_reason;
+    int drop_reason = VP_DROP_ARP_NO_WHERE_TO_GO;
     mac_response_t arp_result;
     bool grat_arp, l3_proxy = false;
     struct vr_route_req rt;
@@ -424,11 +430,13 @@ vr_arp_input(unsigned short vrf, struct vr_packet *pkt,
     struct vr_arp sarp;
 
     /* If vlan tagged packet, we let the VM handle the ARP packets */
-    if (fmd->fmd_vlan != VLAN_ID_INVALID)
+    if ((pkt->vp_type != VP_TYPE_ARP) || (fmd->fmd_vlan != VLAN_ID_INVALID))
         return 0;
 
-    memcpy(&sarp, pkt_data(pkt), sizeof(struct vr_arp));
     fmd->fmd_dvrf = vrf;
+
+    memcpy(&sarp, pkt_data(pkt), sizeof(struct vr_arp));
+
     switch (ntohs(sarp.arp_op)) {
     case VR_ARP_OP_REQUEST:
         return vr_handle_arp_request(&sarp, pkt, fmd, arp_ingress_type);
@@ -582,62 +590,87 @@ vr_l3_input(unsigned short vrf, struct vr_packet *pkt,
 }
 
 bool
-vr_l3_well_known_packet(unsigned short vrf, struct vr_packet *pkt)
+vr_ip_well_known_packet(struct vr_packet *pkt)
 {
     unsigned char *data = pkt_data(pkt);
     struct vr_ip *iph;
-    struct vr_ip6 *ip6;
     struct vr_udp *udph;
-    struct vr_icmp *icmph = NULL;
 
-    if (!(pkt->vp_flags & VP_FLAG_MULTICAST))
+    if ((pkt->vp_type != VP_TYPE_IP) ||
+         (!(pkt->vp_flags & VP_FLAG_MULTICAST)))
         return false;
 
-    if (pkt->vp_type == VP_TYPE_IP) {
-        iph = (struct vr_ip *)data;
-        if ((iph->ip_proto == VR_IP_PROTO_UDP) &&
+    iph = (struct vr_ip *)data;
+    if ((iph->ip_proto == VR_IP_PROTO_UDP) &&
                               vr_ip_transport_header_valid(iph)) {
-            udph = (struct vr_udp *)(data + iph->ip_hl * 4);
-            if (udph->udp_sport == htons(VR_DHCP_SRC_PORT))
-                return true;
-        }
-    } else if (pkt->vp_type == VP_TYPE_IP6) {
-        ip6 = (struct vr_ip6 *)data;
-        // Bridge link-local traffic
-        if (vr_v6_prefix_is_ll(ip6->ip6_dst))
-            return false;
-
-        // 0xFF02 is the multicast address used for NDP, DHCPv6 etc
-        if (ip6->ip6_dst[0] == 0xFF && ip6->ip6_dst[1] == 0x02) {
-            /*
-             * Bridge neighbor solicit for link-local addresses
-             */
-            if (ip6->ip6_nxt == VR_IP_PROTO_ICMP6) {
-                icmph = (struct vr_icmp *)((char *)ip6 +
-                        sizeof(struct vr_ip6));
-            }
-            if (icmph && (icmph->icmp_type == VR_ICMP6_TYPE_NEIGH_SOL))
-                return false;
-        }
-        return true;
+        udph = (struct vr_udp *)(data + iph->ip_hl * 4);
+        if (udph->udp_sport == htons(VR_DHCP_SRC_PORT))
+            return true;
     }
     return false;
 }
 
-int
-vr_trap_l2_well_known_packets(unsigned short vrf, struct vr_packet *pkt,
-                              struct vr_forwarding_md *fmd)
+bool
+vr_ip6_dhcp_packet(struct vr_packet *pkt)
 {
+    unsigned char *data = pkt_data(pkt);
+    struct vr_ip6 *ip6;
+    struct vr_udp *udph = NULL;
 
-    if (vif_is_virtual(pkt->vp_if) && well_known_mac(pkt_data(pkt))) {
-        vr_trap(pkt, vrf,  AGENT_TRAP_L2_PROTOCOLS, NULL);
-        return 1;   
+    if ((pkt->vp_type != VP_TYPE_IP6) ||
+         (!(pkt->vp_flags & VP_FLAG_MULTICAST)))
+        return false;
+
+    ip6 = (struct vr_ip6 *)data;
+
+    if (vr_v6_prefix_is_ll(ip6->ip6_dst))
+            return false;
+
+    /* 0xFF02 is the multicast address used for NDP, DHCPv6 etc */
+    if (ip6->ip6_dst[0] == 0xFF && ip6->ip6_dst[1] == 0x02) {
+        /*
+         * Bridge neighbor solicit for link-local addresses
+         */
+        if (ip6->ip6_nxt == VR_IP_PROTO_UDP)
+            udph = (struct vr_udp *)((char *)ip6 + sizeof(struct vr_ip6));
+        if (udph && (udph->udp_sport == htons(VR_DHCP6_SRC_PORT)))
+            return true;
     }
 
-    return 0;
+    return false;
 }
 
+bool
+vr_ip6_well_known_packet(struct vr_packet *pkt)
+{
+    unsigned char *data = pkt_data(pkt);
+    struct vr_ip6 *ip6;
+    struct vr_icmp *icmph = NULL;
 
+    if ((pkt->vp_type != VP_TYPE_IP6) ||
+         (!(pkt->vp_flags & VP_FLAG_MULTICAST)))
+        return false;
+
+    ip6 = (struct vr_ip6 *)data;
+
+    if (vr_v6_prefix_is_ll(ip6->ip6_dst))
+        return false;
+
+    /* 0xFF02 is the multicast address used for NDP, DHCPv6 etc */
+    if (ip6->ip6_dst[0] == 0xFF && ip6->ip6_dst[1] == 0x02) {
+        /*
+         * Bridge neighbor solicit for link-local addresses
+         */
+        if (ip6->ip6_nxt == VR_IP_PROTO_ICMP6)
+            icmph = (struct vr_icmp *)((char *)ip6 + sizeof(struct vr_ip6));
+        if (icmph && (icmph->icmp_type == VR_ICMP6_TYPE_NEIGH_SOL))
+            return false;
+
+        return true;
+    }
+
+    return false;
+}
 
 /*
  * Function to remove vlan from ethernet header. As it modifies vr_packet
