@@ -28,6 +28,7 @@ vr_vxlan_input(struct vrouter *router, struct vr_packet *pkt,
         fmd = &c_fmd;
     }
 
+    fmd->fmd_to_me = 0;
     ip = (struct vr_ip *)pkt_network_header(pkt);
     fmd->fmd_outer_src_ip = ip->ip_saddr;
 

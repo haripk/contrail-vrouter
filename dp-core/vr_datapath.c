@@ -492,13 +492,21 @@ unsigned int
 vr_reinject_packet(struct vr_packet *pkt, struct vr_forwarding_md *fmd)
 {
     struct vr_interface *vif = pkt->vp_if;
+    int handled;
 
-    vr_printf("%s: from %d in vrf %d type %d data %d network %d\n",
+    vr_printf("%s: from %d in vrf %d type %d data %d network %d to me %d\n",
             __FUNCTION__, pkt->vp_if->vif_idx, fmd->fmd_dvrf,
-            pkt->vp_type, pkt->vp_data, pkt->vp_network_h);
+            pkt->vp_type, pkt->vp_data, pkt->vp_network_h, fmd->fmd_to_me);
 
     if (pkt->vp_nh)
         return pkt->vp_nh->nh_reach_nh(fmd->fmd_dvrf, pkt, pkt->vp_nh, fmd);
+
+    if (fmd->fmd_to_me) {
+        handled = vr_l3_input(fmd->fmd_dvrf, pkt, fmd);
+        if (!handled)
+            vif_drop_pkt(vif, pkt, 1);
+        return 0;
+    }
 
     return vr_bridge_input(vif->vif_router, fmd->fmd_dvrf, pkt, fmd);
 }
@@ -578,6 +586,9 @@ vr_l3_input(unsigned short vrf, struct vr_packet *pkt,
                               struct vr_forwarding_md *fmd)
 {
     struct vr_interface *vif = pkt->vp_if;
+
+    /* We do L3 routing for "My pkts" */
+    fmd->fmd_to_me = 1;
 
     if (pkt->vp_type == VP_TYPE_IP) {
         vr_ip_input(vif->vif_router, vrf, pkt, fmd);
