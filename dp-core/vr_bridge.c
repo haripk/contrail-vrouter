@@ -207,7 +207,7 @@ bridge_table_lookup(unsigned int vrf_id, struct vr_route_req *rt)
     struct vr_bridge_entry *be;
     struct vr_bridge_entry_key key;
 
-    if (rt->rtr_req.rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG) {
+    if (rt->rtr_req.rtr_index != VR_BE_INVALID_INDEX) {
         be = vr_get_hentry_by_index(vn_rtable, rt->rtr_req.rtr_index);
         if (!be)
             return NULL;
@@ -221,8 +221,7 @@ bridge_table_lookup(unsigned int vrf_id, struct vr_route_req *rt)
 
 
     rt->rtr_nh = NULL;
-    rt->rtr_req.rtr_index = -1;
-
+    rt->rtr_req.rtr_index = VR_BE_INVALID_INDEX;
     VR_MAC_COPY(key.be_mac, rt->rtr_req.rtr_mac);
     key.be_vrf_id = rt->rtr_req.rtr_vrf_id;
 
@@ -398,6 +397,7 @@ vr_bridge_input(struct vrouter *router, unsigned short vrf,
     int reason;
 
     rt.rtr_req.rtr_label_flags = 0;
+    rt.rtr_req.rtr_index = VR_BE_INVALID_INDEX;
     rt.rtr_req.rtr_mac_size = VR_ETHER_ALEN;
     rt.rtr_req.rtr_mac =(int8_t *) pkt_data(pkt);
     /* If multicast L2 packet, use broadcast composite nexthop */

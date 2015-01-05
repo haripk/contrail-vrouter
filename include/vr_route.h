@@ -27,14 +27,8 @@ struct rtable_fspec;
 
 struct vr_route_req {
     vr_route_req        rtr_req;
-    union {
-        struct vr_nexthop   *rre_nh;
-        unsigned long rre_bridge_index;
-    } route_req_entry;
+    struct vr_nexthop   *rtr_nh;
 };
-
-#define rtr_nh  route_req_entry.rre_nh
-#define rtr_bridge_index route_req_entry.rre_bridge_index
 
 struct vr_vrf_stats {
     uint64_t vrf_discards;

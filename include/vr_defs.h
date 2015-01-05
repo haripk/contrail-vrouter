@@ -47,9 +47,6 @@ enum rt_type{
 #define VR_RT_ARP_TRAP_FLAG         0x4
 #define VR_RT_ARP_FLOOD_FLAG        0x8
 
-/* This value is internally used by Mtrie */
-#define VR_RT_BRIDGE_ENTRY_FLAG     0x10
-
 struct agent_hdr {
     unsigned short hdr_ifindex;
     unsigned short hdr_vrf;

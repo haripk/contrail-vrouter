@@ -60,13 +60,12 @@ vr_get_l3_stitching_info(struct vr_packet *pkt, struct vr_route_req *rt,
          *
          */
         if (rt->rtr_req.rtr_label_flags & VR_RT_ARP_PROXY_FLAG) {
-            if (!(rt->rtr_req.rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG)) {
+            if (rt->rtr_req.rtr_index == VR_BE_INVALID_INDEX) {
                 if (stats)
                     stats->vrf_arp_virtual_proxy++;
                 goto proxy;
             }
 
-            rt->rtr_req.rtr_index = rt->rtr_req.rtr_nh_id;
             rt->rtr_req.rtr_mac = src_mac;
             if (vr_bridge_lookup(fmd->fmd_dvrf, rt)) {
                 if (stats)
@@ -91,8 +90,7 @@ vr_get_l3_stitching_info(struct vr_packet *pkt, struct vr_route_req *rt,
      */
     if (vif->vif_type == VIF_TYPE_PHYSICAL) {
         if (rt->rtr_req.rtr_label_flags & VR_RT_ARP_PROXY_FLAG) {
-            if (rt->rtr_req.rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG) {
-                rt->rtr_req.rtr_index = rt->rtr_req.rtr_nh_id;
+            if (rt->rtr_req.rtr_index != VR_BE_INVALID_INDEX) {
                 rt->rtr_req.rtr_mac = src_mac;
                 if ((nh = vr_bridge_lookup(fmd->fmd_dvrf, rt))) {
 
@@ -135,6 +133,7 @@ proxy:
 
 stitch:
     memset(rt, 0, sizeof(*rt));
+    rt->rtr_req.rtr_index = VR_BE_INVALID_INDEX;
     rt->rtr_req.rtr_mac_size = VR_ETHER_ALEN;
     rt->rtr_req.rtr_mac = dst_mac;
     rt->rtr_req.rtr_vrf_id = fmd->fmd_dvrf;
@@ -257,13 +256,14 @@ vr_handle_arp_request(struct vr_arp *sarp, struct vr_packet *pkt,
     }
 
     memset(&rt, 0, sizeof(rt));
+    rt.rtr_req.rtr_index = VR_BE_INVALID_INDEX;
     rt.rtr_req.rtr_vrf_id = fmd->fmd_dvrf;
     rt.rtr_req.rtr_prefix = (uint8_t*)&rt_prefix;
     *(uint32_t*)rt.rtr_req.rtr_prefix = (sarp->arp_dpa);
     rt.rtr_req.rtr_prefix_size = 4;
     rt.rtr_req.rtr_prefix_len = 32;
 
-    vr_inet_route_get(fmd->fmd_dvrf, &rt);
+    vr_inet_route_lookup(fmd->fmd_dvrf, &rt);
 
     if (vif_is_virtual(vif)) {
         /*
@@ -494,14 +494,14 @@ vr_reinject_packet(struct vr_packet *pkt, struct vr_forwarding_md *fmd)
     struct vr_interface *vif = pkt->vp_if;
     int handled;
 
-    vr_printf("%s: from %d in vrf %d type %d data %d network %d to me %d\n",
+    vr_printf("%s: from %d in vrf %d type %d data %d network %d\n",
             __FUNCTION__, pkt->vp_if->vif_idx, fmd->fmd_dvrf,
-            pkt->vp_type, pkt->vp_data, pkt->vp_network_h, fmd->fmd_to_me);
+            pkt->vp_type, pkt->vp_data, pkt->vp_network_h);
 
     if (pkt->vp_nh)
         return pkt->vp_nh->nh_reach_nh(fmd->fmd_dvrf, pkt, pkt->vp_nh, fmd);
 
-    if (fmd->fmd_to_me) {
+    if (vif->vif_type == VIF_TYPE_HOST) {
         handled = vr_l3_input(fmd->fmd_dvrf, pkt, fmd);
         if (!handled)
             vif_drop_pkt(vif, pkt, 1);
@@ -586,9 +586,6 @@ vr_l3_input(unsigned short vrf, struct vr_packet *pkt,
                               struct vr_forwarding_md *fmd)
 {
     struct vr_interface *vif = pkt->vp_if;
-
-    /* We do L3 routing for "My pkts" */
-    fmd->fmd_to_me = 1;
 
     if (pkt->vp_type == VP_TYPE_IP) {
         vr_ip_input(vif->vif_router, vrf, pkt, fmd);

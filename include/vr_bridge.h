@@ -39,6 +39,7 @@
 
 #define VR_BE_FLAG_VALID                 0x01
 #define VR_BE_FLAG_LABEL_VALID           0x02
+#define VR_BE_INVALID_INDEX              ((unsigned int)-1)
 
 extern char vr_bcast_mac[];
 unsigned int

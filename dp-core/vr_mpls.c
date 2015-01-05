@@ -252,7 +252,6 @@ vr_mpls_input(struct vrouter *router, struct vr_packet *pkt,
         fmd = &c_fmd;
     }
 
-    fmd->fmd_to_me = 0;
     label = ntohl(*(unsigned int *)pkt_data(pkt));
     ttl = label & 0xFF;
     label >>= VR_MPLS_LABEL_SHIFT;

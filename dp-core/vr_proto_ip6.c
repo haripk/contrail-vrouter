@@ -189,7 +189,7 @@ vr_ip6_neighbor_solicitation_input(unsigned short vrf, struct vr_packet *pkt,
     rt.rtr_req.rtr_nh_id = 0;
     rt.rtr_req.rtr_label_flags = 0;
 
-    vr_inet_route_get(vrf, &rt);
+    vr_inet_route_lookup(vrf, &rt);
 
     ndisc_result = vr_get_l3_stitching_info(pkt, &rt, fmd, src_mac,
                                           dst_mac, pkt_src, &drop_reason);

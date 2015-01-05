@@ -138,8 +138,6 @@ vr_route_req_process(void *s_req)
                 strcat(flags, "P");
             if (rt->rtr_label_flags & VR_RT_ARP_TRAP_FLAG)
                 strcat(flags, "T");
-            if (rt->rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG)
-                strcat(flags, "B");
             if (rt->rtr_label_flags & VR_RT_ARP_FLOOD_FLAG)
                 strcat(flags, "F");
 
@@ -156,14 +154,16 @@ vr_route_req_process(void *s_req)
             for (i = 0; i < 8; i++)
                 printf(" ");
 
-            if (rt->rtr_label_flags & VR_RT_BRIDGE_ENTRY_FLAG) {
-                if (rt->rtr_mac)
-                    printf("%s", ether_ntoa((struct ether_addr *)(rt->rtr_mac)));
-                else
-                    printf("-");
-            } else {
-                printf("%7d", rt->rtr_nh_id);
-            }
+            printf("%7d", rt->rtr_nh_id);
+
+            for (i = 0; i < 8; i++)
+                printf(" ");
+
+            if (rt->rtr_mac && (!IS_MAC_ZERO(rt->rtr_mac)))
+                printf("%s", ether_ntoa((struct ether_addr *)(rt->rtr_mac)));
+            else
+                printf("-");
+
             printf("\n");
     } else {
         ret = printf("%s", ether_ntoa((struct ether_addr *)(rt->rtr_mac)));
@@ -378,7 +378,7 @@ vr_route_op(void)
     if (cmd_op == SANDESH_OP_DUMP) {
         if ((cmd_family_id == AF_INET) || (cmd_family_id == AF_INET6)) {
             printf("Kernel IP routing table %d/%d/unicast\n", req->rtr_rid, cmd_vrf_id);
-            printf("Destination	        PPL        Flags        Label        Nexthop\n");
+            printf("Destination	        PPL        Flags        Label           Nexthop    Stitched MAC\n");
         } else {
             printf("Kernel L2 Bridge table %d/%d\n", req->rtr_rid, cmd_vrf_id);
             printf("DestMac                 Vrf    Label/VNID     Nexthop\n");
