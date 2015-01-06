@@ -194,11 +194,7 @@ vr_forward(struct vrouter *router, unsigned short vrf,
     short plen;
     uint32_t rt_prefix[4];
 
-#if 0
-    if (pkt->vp_nh)
-        return nh_output(vrf, pkt, pkt->vp_nh, fmd);
-#endif
-
+    ip6 = NULL;
     ip = (struct vr_ip *)pkt_data(pkt);
     if (vr_ip_is_ip6(ip)) {
         family = AF_INET6;
@@ -1059,5 +1055,26 @@ vr_inet_route_flags(unsigned int vrf, unsigned int ip)
     (void)vr_inet_route_lookup(vrf, &rt);
 
     return rt.rtr_req.rtr_label_flags;
+}
+
+bool
+vr_ip_well_known_packet(struct vr_packet *pkt)
+{
+    unsigned char *data = pkt_data(pkt);
+    struct vr_ip *iph;
+    struct vr_udp *udph;
+
+    if ((pkt->vp_type != VP_TYPE_IP) ||
+         (!(pkt->vp_flags & VP_FLAG_MULTICAST)))
+        return false;
+
+    iph = (struct vr_ip *)data;
+    if ((iph->ip_proto == VR_IP_PROTO_UDP) &&
+                              vr_ip_transport_header_valid(iph)) {
+        udph = (struct vr_udp *)(data + iph->ip_hl * 4);
+        if (udph->udp_sport == htons(VR_DHCP_SRC_PORT))
+            return true;
+    }
+    return false;
 }
 

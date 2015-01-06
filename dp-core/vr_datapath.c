@@ -23,15 +23,6 @@ vr_grat_arp(struct vr_arp *sarp)
     return false;
 }
 
-static int 
-vr_v6_prefix_is_ll(uint8_t prefix[])  
-{
-    if ((prefix[0] == 0xFE) && (prefix[1] == 0x80)) {
-        return true;
-    }
-    return false;
-}
-
 /*
  * src_mac is the mac that should be sent in ARP response which could be
  * the result of stithcing/proxy
@@ -595,89 +586,6 @@ vr_l3_input(unsigned short vrf, struct vr_packet *pkt,
          return 1;
     }
     return 0;
-}
-
-bool
-vr_ip_well_known_packet(struct vr_packet *pkt)
-{
-    unsigned char *data = pkt_data(pkt);
-    struct vr_ip *iph;
-    struct vr_udp *udph;
-
-    if ((pkt->vp_type != VP_TYPE_IP) ||
-         (!(pkt->vp_flags & VP_FLAG_MULTICAST)))
-        return false;
-
-    iph = (struct vr_ip *)data;
-    if ((iph->ip_proto == VR_IP_PROTO_UDP) &&
-                              vr_ip_transport_header_valid(iph)) {
-        udph = (struct vr_udp *)(data + iph->ip_hl * 4);
-        if (udph->udp_sport == htons(VR_DHCP_SRC_PORT))
-            return true;
-    }
-    return false;
-}
-
-bool
-vr_ip6_dhcp_packet(struct vr_packet *pkt)
-{
-    unsigned char *data = pkt_data(pkt);
-    struct vr_ip6 *ip6;
-    struct vr_udp *udph = NULL;
-
-    if ((pkt->vp_type != VP_TYPE_IP6) ||
-         (!(pkt->vp_flags & VP_FLAG_MULTICAST)))
-        return false;
-
-    ip6 = (struct vr_ip6 *)data;
-
-    if (vr_v6_prefix_is_ll(ip6->ip6_dst))
-            return false;
-
-    /* 0xFF02 is the multicast address used for NDP, DHCPv6 etc */
-    if (ip6->ip6_dst[0] == 0xFF && ip6->ip6_dst[1] == 0x02) {
-        /*
-         * Bridge neighbor solicit for link-local addresses
-         */
-        if (ip6->ip6_nxt == VR_IP_PROTO_UDP)
-            udph = (struct vr_udp *)((char *)ip6 + sizeof(struct vr_ip6));
-        if (udph && (udph->udp_sport == htons(VR_DHCP6_SRC_PORT)))
-            return true;
-    }
-
-    return false;
-}
-
-bool
-vr_ip6_well_known_packet(struct vr_packet *pkt)
-{
-    unsigned char *data = pkt_data(pkt);
-    struct vr_ip6 *ip6;
-    struct vr_icmp *icmph = NULL;
-
-    if ((pkt->vp_type != VP_TYPE_IP6) ||
-         (!(pkt->vp_flags & VP_FLAG_MULTICAST)))
-        return false;
-
-    ip6 = (struct vr_ip6 *)data;
-
-    if (vr_v6_prefix_is_ll(ip6->ip6_dst))
-        return false;
-
-    /* 0xFF02 is the multicast address used for NDP, DHCPv6 etc */
-    if (ip6->ip6_dst[0] == 0xFF && ip6->ip6_dst[1] == 0x02) {
-        /*
-         * Bridge neighbor solicit for link-local addresses
-         */
-        if (ip6->ip6_nxt == VR_IP_PROTO_ICMP6)
-            icmph = (struct vr_icmp *)((char *)ip6 + sizeof(struct vr_ip6));
-        if (icmph && (icmph->icmp_type == VR_ICMP6_TYPE_NEIGH_SOL))
-            return false;
-
-        return true;
-    }
-
-    return false;
 }
 
 /*

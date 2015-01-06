@@ -23,6 +23,9 @@ extern struct vr_nexthop * vr_inet_src_lookup(unsigned short ,
 extern int vr_ip6_neighbor_solicitation(struct vr_packet *);
 extern int vr_ip6_neighbor_solicitation_input(unsigned short, struct vr_packet *,
                                            struct vr_forwarding_md *, int);
+extern bool vr_ip6_well_known_packet(struct vr_packet *);
+extern bool vr_ip6_dhcp_packet(struct vr_packet *);
+extern bool vr_ip_well_known_packet(struct vr_packet *);
 
 
 struct vr_nexthop *ip4_default_nh;
