@@ -143,7 +143,7 @@ vr_route_req_process(void *s_req)
 
             printf("%5s", flags);
 
-            for (i = 0; i < 8; i++)
+            for (i = 0; i < 6; i++)
                 printf(" ");
 
             if (rt->rtr_label_flags & VR_RT_LABEL_VALID_FLAG)
@@ -156,7 +156,7 @@ vr_route_req_process(void *s_req)
 
             printf("%7d", rt->rtr_nh_id);
 
-            for (i = 0; i < 8; i++)
+            for (i = 0; i < 10; i++)
                 printf(" ");
 
             if (rt->rtr_mac && (!IS_MAC_ZERO(rt->rtr_mac)))
@@ -378,7 +378,7 @@ vr_route_op(void)
     if (cmd_op == SANDESH_OP_DUMP) {
         if ((cmd_family_id == AF_INET) || (cmd_family_id == AF_INET6)) {
             printf("Kernel IP routing table %d/%d/unicast\n", req->rtr_rid, cmd_vrf_id);
-            printf("Destination	        PPL        Flags        Label           Nexthop    Stitched MAC\n");
+            printf("Destination	        PPL        Flags        Label        Nexthop    Stitched MAC\n");
         } else {
             printf("Kernel L2 Bridge table %d/%d\n", req->rtr_rid, cmd_vrf_id);
             printf("DestMac                 Vrf    Label/VNID     Nexthop\n");

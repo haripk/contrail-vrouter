@@ -191,6 +191,7 @@ nh_l2_rcv(unsigned short vrf, struct vr_packet *pkt,
     struct vr_vrf_stats *stats;
     int pull_len, handled = 0;
 
+    fmd->fmd_dvrf = vrf;
     stats = vr_inet_vrf_stats(vrf, pkt->vp_cpu);
     if (stats)
         stats->vrf_l2_receives++;

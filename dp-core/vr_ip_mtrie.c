@@ -856,8 +856,10 @@ mtrie_lookup(unsigned int vrf_id, struct vr_route_req *rt)
     ent = &table->root;
 
     ptr = ent->entry_long_i;
-    if (!ptr)
+    if (!ptr) {
+        rt->rtr_nh = default_nh;
         return default_nh;
+    }
 
     if (PTR_IS_NEXTHOP(ptr)) {
         rt->rtr_req.rtr_label_flags = ent->entry_label_flags;
@@ -865,7 +867,7 @@ mtrie_lookup(unsigned int vrf_id, struct vr_route_req *rt)
         rt->rtr_req.rtr_prefix_len = ent->entry_prefix_len;
         rt->rtr_req.rtr_index = ent->entry_bridge_index;
         ret_nh = PTR_TO_NEXTHOP(ptr);
-
+        rt->rtr_nh = ret_nh;
         return ret_nh;
     }
 
@@ -883,6 +885,7 @@ mtrie_lookup(unsigned int vrf_id, struct vr_route_req *rt)
             rt->rtr_req.rtr_prefix_len = ent->entry_prefix_len;
             rt->rtr_req.rtr_index = ent->entry_bridge_index;
             ret_nh = PTR_TO_NEXTHOP(ptr);
+            rt->rtr_nh = ret_nh;
             return ret_nh;
         }
 
@@ -892,6 +895,7 @@ mtrie_lookup(unsigned int vrf_id, struct vr_route_req *rt)
     /* no nexthop; assert */
     ASSERT(0);
 
+    rt->rtr_nh = ret_nh;
     return NULL;
 }
 
