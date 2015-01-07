@@ -1608,6 +1608,8 @@ nh_encap_l2(unsigned short vrf, struct vr_packet *pkt,
      * Mark the packet as L2 and make it inelgible for GRO
      */
     pkt->vp_flags &= ~VP_FLAG_GRO;
+    if (!VR_MAC_CMP(pkt_data(pkt), nh->nh_data))
+        VR_MAC_COPY(pkt_data(pkt), nh->nh_data);
 
     vif = nh->nh_dev;
     vif->vif_tx(vif, pkt);
@@ -2075,24 +2077,22 @@ nh_encap_add(struct vr_nexthop *nh, vr_nexthop_req *req)
      * added to NH
      */
     old_vif = nh->nh_dev;
-
     if (req->nhr_flags & NH_FLAG_ENCAP_L2) {
-         if (req->nhr_encap_size) {
-             vrouter_put_interface(vif);
-             return -EINVAL;
-         }
-        nh->nh_dev = vif;
+        if (req->nhr_encap_size < VR_ETHER_ALEN) {
+            vrouter_put_interface(vif);
+            return -EINVAL;
+        }
         nh->nh_reach_nh = nh_encap_l2;
     } else {
-        nh->nh_dev = vif;
-        nh->nh_encap_family = req->nhr_encap_family;
-        nh->nh_encap_len = req->nhr_encap_size;
-        if (nh->nh_encap_len && nh->nh_data)
-            memcpy(nh->nh_data, req->nhr_encap, nh->nh_encap_len);
-
         nh->nh_reach_nh = nh_encap_l3_unicast;
         nh->nh_validate_src = nh_encap_l3_validate_src;
     }
+
+    nh->nh_dev = vif;
+    nh->nh_encap_family = req->nhr_encap_family;
+    nh->nh_encap_len = req->nhr_encap_size;
+    if (nh->nh_encap_len && nh->nh_data)
+        memcpy(nh->nh_data, req->nhr_encap, nh->nh_encap_len);
 
 	nh->nh_arp_response = nh_encap_arp_response;
 

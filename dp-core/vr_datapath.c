@@ -527,10 +527,10 @@ vr_virtual_input(unsigned short vrf, struct vr_interface *vif,
         return 0;
     }
 
-    if (!vr_flow_forward(pkt->vp_if->vif_router, vrf, pkt, &fmd))
+    if (!vr_flow_forward(pkt->vp_if->vif_router, fmd.fmd_dvrf, pkt, &fmd))
         return 0;
 
-    vr_bridge_input(vif->vif_router, vrf, pkt, &fmd);
+    vr_bridge_input(vif->vif_router, fmd.fmd_dvrf, pkt, &fmd);
     return 0;
 
 }

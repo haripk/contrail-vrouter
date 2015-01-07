@@ -720,7 +720,7 @@ vr_inet_flow_nat(unsigned short vrf, struct vr_flow_entry *fe,
         vr_ip_update_csum(pkt, ip_inc, inc);
 
     if ((fe->fe_flags & VR_FLOW_FLAG_VRFT) &&
-            pkt->vp_nh && pkt->vp_nh->nh_vrf != vrf) {
+            pkt->vp_nh && (pkt->vp_nh->nh_vrf != vrf)) {
         pkt->vp_nh = NULL;
         fmd->fmd_dvrf = vrf;
     }
