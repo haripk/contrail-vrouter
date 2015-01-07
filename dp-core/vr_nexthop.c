@@ -1735,48 +1735,9 @@ vr_nexthop_delete(vr_nexthop_req *req)
 }
 
 static int
-nh_resolve_arp_response(unsigned short vrf, struct vr_packet *pkt,
-                        struct vr_nexthop *nh, struct vr_forwarding_md *fmd)
-{
-    struct vr_vrf_stats *stats;
-    stats = vr_inet_vrf_stats(vrf, pkt->vp_cpu);
-
-    if (nh->nh_dev) {
-        if (stats)
-           stats->vrf_resolve_arp_responses++;
-
-        nh->nh_dev->vif_tx(nh->nh_dev, pkt);
-        return 0;
-    }
-
-    vr_pfree(pkt, VP_DROP_ARP_NO_WHERE_TO_GO);
-    return 0;
-}
-
-static int
 nh_resolve_add(struct vr_nexthop *nh, vr_nexthop_req *req)
 {
     nh->nh_reach_nh = nh_resolve;
-    nh->nh_arp_response = nh_resolve_arp_response;
-    return 0;
-}
-
-static int
-nh_rcv_arp_response(unsigned short vrf, struct vr_packet *pkt,
-                    struct vr_nexthop *nh, struct vr_forwarding_md *fmd)
-{
-    struct vr_vrf_stats *stats;
-    stats = vr_inet_vrf_stats(vrf, pkt->vp_cpu);
-
-    if (nh->nh_dev) {
-        if (stats)
-            stats->vrf_rcv_arp_responses++;
-
-        nh->nh_dev->vif_tx(nh->nh_dev, pkt);
-        return 0;
-    }
-
-    vr_pfree(pkt, VP_DROP_ARP_NO_WHERE_TO_GO);
     return 0;
 }
 
@@ -1784,7 +1745,6 @@ static int
 nh_l2_rcv_add(struct vr_nexthop *nh, vr_nexthop_req *req)
 {
     nh->nh_reach_nh = nh_l2_rcv;
-    nh->nh_arp_response = nh_rcv_arp_response;
     return 0;
 }
 
@@ -1803,7 +1763,6 @@ nh_rcv_add(struct vr_nexthop *nh, vr_nexthop_req *req)
     nh->nh_dev = vif;
 
     nh->nh_reach_nh = nh_l3_rcv;
-    nh->nh_arp_response = nh_rcv_arp_response;
 
     if (old_vif)
         vrouter_put_interface(old_vif);
@@ -2083,6 +2042,7 @@ nh_encap_add(struct vr_nexthop *nh, vr_nexthop_req *req)
             return -EINVAL;
         }
         nh->nh_reach_nh = nh_encap_l2;
+	    nh->nh_arp_response = nh_encap_arp_response;
     } else {
         nh->nh_reach_nh = nh_encap_l3_unicast;
         nh->nh_validate_src = nh_encap_l3_validate_src;
@@ -2094,7 +2054,6 @@ nh_encap_add(struct vr_nexthop *nh, vr_nexthop_req *req)
     if (nh->nh_encap_len && nh->nh_data)
         memcpy(nh->nh_data, req->nhr_encap, nh->nh_encap_len);
 
-	nh->nh_arp_response = nh_encap_arp_response;
 
     if (old_vif)
         vrouter_put_interface(old_vif);

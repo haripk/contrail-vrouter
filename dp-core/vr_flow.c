@@ -775,8 +775,9 @@ vr_flow_forward(struct vrouter *router, unsigned short vrf,
 {
     flow_result_t result;
 
-    /* Flow processig is only for untagged IP packets */
-    if ((fmd->fmd_vlan == VLAN_ID_INVALID) && (pkt->vp_type == VP_TYPE_IP))
+    /* Flow processig is only for untagged unicast IP packets */
+    if ((pkt->vp_type == VP_TYPE_IP) && (fmd->fmd_vlan == VLAN_ID_INVALID) &&
+            (!(pkt->vp_flags & VP_FLAG_MULTICAST)))
         result = vr_inet_flow_lookup(router, vrf, pkt, fmd);
     else
         result = FLOW_FORWARD;
