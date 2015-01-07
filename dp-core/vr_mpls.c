@@ -241,7 +241,7 @@ vr_mpls_input(struct vrouter *router, struct vr_packet *pkt,
         struct vr_forwarding_md *fmd)
 {
     unsigned int label;
-    unsigned short vrf, drop_reason;
+    unsigned short drop_reason;
     struct vr_nexthop *nh;
     struct vr_ip *ip;
     struct vr_forwarding_md c_fmd;
@@ -329,13 +329,13 @@ vr_mpls_input(struct vrouter *router, struct vr_packet *pkt,
      * will forward the packet in the vrf in which it came i.e fabric
      */
     if (nh->nh_vrf >= 0)
-        vrf = nh->nh_vrf;
+        fmd->fmd_dvrf = nh->nh_vrf;
     else if (nh->nh_dev)
-        vrf = nh->nh_dev->vif_vrf;
+        fmd->fmd_dvrf = nh->nh_dev->vif_vrf;
     else
-        vrf = pkt->vp_if->vif_vrf;
+        fmd->fmd_dvrf = pkt->vp_if->vif_vrf;
 
-    nh_output(vrf, pkt, nh, fmd);
+    nh_output(pkt, nh, fmd);
 
     return 0;
 

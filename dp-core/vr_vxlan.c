@@ -19,7 +19,6 @@ vr_vxlan_input(struct vrouter *router, struct vr_packet *pkt,
     struct vr_vxlan *vxlan;
     unsigned int vnid, drop_reason;
     struct vr_nexthop *nh;
-    unsigned short vrf;
     struct vr_forwarding_md c_fmd;
     struct vr_ip *ip;
 
@@ -56,14 +55,14 @@ vr_vxlan_input(struct vrouter *router, struct vr_packet *pkt,
     }
 
     if (nh->nh_vrf >= 0) {
-        vrf = nh->nh_vrf;
+        fmd->fmd_dvrf = nh->nh_vrf;
     } else if (nh->nh_dev) {
-        vrf = nh->nh_dev->vif_vrf;
+        fmd->fmd_dvrf = nh->nh_dev->vif_vrf;
     } else {
-        vrf = pkt->vp_if->vif_vrf;
+        fmd->fmd_dvrf = pkt->vp_if->vif_vrf;
     }
 
-    return nh_output(vrf, pkt, nh, fmd);
+    return nh_output(pkt, nh, fmd);
 
 fail:
     vr_pfree(pkt, drop_reason);

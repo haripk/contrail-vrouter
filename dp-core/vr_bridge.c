@@ -387,8 +387,8 @@ bridge_table_deinit(struct vr_rtable *rtable, struct rtable_fspec *fs,
 }
 
 unsigned int
-vr_bridge_input(struct vrouter *router, unsigned short vrf,
-                struct vr_packet *pkt, struct vr_forwarding_md *fmd)
+vr_bridge_input(struct vrouter *router, struct vr_packet *pkt,
+                struct vr_forwarding_md *fmd)
 {
     struct vr_route_req rt;
     struct vr_forwarding_md cmd;
@@ -403,9 +403,9 @@ vr_bridge_input(struct vrouter *router, unsigned short vrf,
     /* If multicast L2 packet, use broadcast composite nexthop */
     if (IS_MAC_BMCAST(rt.rtr_req.rtr_mac))
         rt.rtr_req.rtr_mac = (int8_t *)vr_bcast_mac;
-    rt.rtr_req.rtr_vrf_id = vrf;
+    rt.rtr_req.rtr_vrf_id = fmd->fmd_dvrf;
 
-    nh = vr_bridge_lookup(vrf, &rt);
+    nh = vr_bridge_lookup(fmd->fmd_dvrf, &rt);
     if (!nh) {
         vr_pfree(pkt, VP_DROP_L2_NO_ROUTE);
         return 0;
@@ -449,7 +449,7 @@ vr_bridge_input(struct vrouter *router, unsigned short vrf,
         fmd->fmd_label = rt.rtr_req.rtr_label;
     }
 
-    nh_output(vrf, pkt, nh, fmd);
+    nh_output(pkt, nh, fmd);
     return 0;
 }
 

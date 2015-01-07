@@ -488,11 +488,11 @@ drop:
 }
 
 static flow_result_t
-vr_flow_nat(unsigned short vrf, struct vr_flow_entry *fe,
+vr_flow_nat(struct vr_flow_entry *fe,
         struct vr_packet *pkt, struct vr_forwarding_md *fmd)
 {
     if (pkt->vp_type == VP_TYPE_IP)
-        return vr_inet_flow_nat(vrf, fe, pkt, fmd);
+        return vr_inet_flow_nat(fe, pkt, fmd);
 
     vr_pfree(pkt, VP_DROP_FLOW_ACTION_INVALID);
     return FLOW_CONSUMED;
@@ -522,7 +522,6 @@ vr_flow_action(struct vrouter *router, struct vr_flow_entry *fe,
         struct vr_forwarding_md *fmd)
 {
     int valid_src;
-    unsigned short vrf;
 
     flow_result_t result;
 
@@ -530,7 +529,7 @@ vr_flow_action(struct vrouter *router, struct vr_flow_entry *fe,
     struct vr_nexthop *src_nh;
     struct vr_packet *pkt_clone;
 
-    vrf = fe->fe_vrf;
+    fmd->fmd_dvrf = fe->fe_vrf;
     /*
      * for now, we will not use dvrf if VRFT is set, because the RPF
      * check needs to happen in the source vrf
@@ -544,7 +543,7 @@ vr_flow_action(struct vrouter *router, struct vr_flow_entry *fe,
     }
 
     if (src_nh->nh_validate_src) {
-        valid_src = src_nh->nh_validate_src(vrf, pkt, src_nh, fmd, NULL);
+        valid_src = src_nh->nh_validate_src(pkt, src_nh, fmd, NULL);
         if (valid_src == NH_SOURCE_INVALID) {
             vr_pfree(pkt, VP_DROP_INVALID_SOURCE);
             return FLOW_CONSUMED;
@@ -558,7 +557,7 @@ vr_flow_action(struct vrouter *router, struct vr_flow_entry *fe,
                             sizeof(struct agent_hdr))) {
                     vr_pfree(pkt_clone, VP_DROP_PCOW_FAIL);
                 } else {
-                    vr_trap(pkt_clone, vrf,
+                    vr_trap(pkt_clone, fmd->fmd_dvrf,
                             AGENT_TRAP_ECMP_RESOLVE, &fmd->fmd_flow_index);
                 }
             }
@@ -567,10 +566,8 @@ vr_flow_action(struct vrouter *router, struct vr_flow_entry *fe,
 
 
     if (fe->fe_flags & VR_FLOW_FLAG_VRFT) {
-        vrf = fe->fe_dvrf;
+        fmd->fmd_dvrf = fe->fe_dvrf;
     }
-
-    fmd->fmd_dvrf = vrf;
 
     if (fe->fe_flags & VR_FLOW_FLAG_MIRROR) {
         if (fe->fe_mirror_id < VR_MAX_MIRROR_INDICES) {
@@ -596,7 +593,7 @@ vr_flow_action(struct vrouter *router, struct vr_flow_entry *fe,
         break;
 
     case VR_FLOW_ACTION_NAT:
-        result = vr_flow_nat(vrf, fe, pkt, fmd);
+        result = vr_flow_nat(fe, pkt, fmd);
         break;
 
     default:
@@ -706,9 +703,8 @@ vr_flow_entry_set_hold(struct vrouter *router, struct vr_flow_entry *flow_e)
 }
 
 flow_result_t
-vr_flow_lookup(struct vrouter *router, unsigned short vrf,
-        struct vr_flow *key, struct vr_packet *pkt,
-        struct vr_forwarding_md *fmd)
+vr_flow_lookup(struct vrouter *router, struct vr_flow *key,
+               struct vr_packet *pkt, struct vr_forwarding_md *fmd)
 {
     unsigned int fe_index;
     struct vr_flow_entry *flow_e;
@@ -733,7 +729,7 @@ vr_flow_lookup(struct vrouter *router, unsigned short vrf,
             return FLOW_CONSUMED;
         }
 
-        flow_e->fe_vrf = vrf;
+        flow_e->fe_vrf = fmd->fmd_dvrf;
         /* mark as hold */
         vr_flow_entry_set_hold(router, flow_e);
     } 
@@ -770,15 +766,15 @@ __vr_flow_forward(flow_result_t result, struct vr_packet *pkt,
 }
 
 bool
-vr_flow_forward(struct vrouter *router, unsigned short vrf,
-        struct vr_packet *pkt, struct vr_forwarding_md *fmd)
+vr_flow_forward(struct vrouter *router, struct vr_packet *pkt,
+                struct vr_forwarding_md *fmd)
 {
     flow_result_t result;
 
     /* Flow processig is only for untagged unicast IP packets */
     if ((pkt->vp_type == VP_TYPE_IP) && (fmd->fmd_vlan == VLAN_ID_INVALID) &&
             (!(pkt->vp_flags & VP_FLAG_MULTICAST)))
-        result = vr_inet_flow_lookup(router, vrf, pkt, fmd);
+        result = vr_inet_flow_lookup(router, pkt, fmd);
     else
         result = FLOW_FORWARD;
 

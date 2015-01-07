@@ -107,17 +107,14 @@ struct vr_nexthop {
 
     uint16_t            nh_data_size;
     struct vrouter      *nh_router;
-    int                 (*nh_validate_src)(unsigned short,
-                                           struct vr_packet *,
+    int                 (*nh_validate_src)(struct vr_packet *,
                                            struct vr_nexthop *,
                                            struct vr_forwarding_md *,
                                            void *);
-    int                 (*nh_reach_nh)(unsigned short, 
-                                       struct vr_packet *,
+    int                 (*nh_reach_nh)(struct vr_packet *,
                                        struct vr_nexthop *,
                                        struct vr_forwarding_md *);
-    int                 (*nh_arp_response)(unsigned short,
-                                           struct vr_packet *,
+    int                 (*nh_arp_response)(struct vr_packet *,
                                            struct vr_nexthop *,
                                            struct vr_forwarding_md *);
 
@@ -146,7 +143,7 @@ extern struct vr_nexthop *vrouter_get_nexthop(unsigned int, unsigned int);
 extern void vrouter_put_nexthop(struct vr_nexthop *);
 extern int vr_ip_rcv(struct vrouter *, struct vr_packet *,
         struct vr_forwarding_md *);
-extern int nh_output(unsigned short, struct vr_packet *,
+extern int nh_output(struct vr_packet *,
         struct vr_nexthop *, struct vr_forwarding_md *);
 extern int vr_nexthop_add(vr_nexthop_req *);
 extern int vr_nexthop_get(vr_nexthop_req *);

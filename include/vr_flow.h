@@ -227,7 +227,7 @@ struct vrouter;
 extern int vr_flow_init(struct vrouter *);
 extern void vr_flow_exit(struct vrouter *, bool);
 
-extern bool vr_flow_forward(struct vrouter *, unsigned short,
+extern bool vr_flow_forward(struct vrouter *,
         struct vr_packet *, struct vr_forwarding_md *);
 
 void *vr_flow_get_va(struct vrouter *, uint64_t);
@@ -236,13 +236,12 @@ unsigned int vr_flow_table_size(struct vrouter *);
 unsigned int vr_oflow_table_size(struct vrouter *);
 
 struct vr_flow_entry *vr_get_flow_entry(struct vrouter *, int);
-flow_result_t vr_flow_lookup(struct vrouter *, unsigned short,
-                struct vr_flow *, struct vr_packet *,
-                struct vr_forwarding_md *);
+flow_result_t vr_flow_lookup(struct vrouter *, struct vr_flow *,
+                             struct vr_packet *, struct vr_forwarding_md *);
 
-flow_result_t vr_inet_flow_lookup(struct vrouter *, unsigned short,
-        struct vr_packet *, struct vr_forwarding_md *);
-extern flow_result_t vr_inet_flow_nat(unsigned short, struct vr_flow_entry *,
+flow_result_t vr_inet_flow_lookup(struct vrouter *, struct vr_packet *,
+                                  struct vr_forwarding_md *);
+extern flow_result_t vr_inet_flow_nat(struct vr_flow_entry *,
         struct vr_packet *, struct vr_forwarding_md *);
 extern void vr_inet_fill_flow(struct vr_flow *, unsigned short,
                 uint32_t, uint32_t, uint8_t, uint16_t, uint16_t);

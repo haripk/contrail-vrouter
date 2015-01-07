@@ -152,7 +152,7 @@ vr_handle_mac_response(struct vr_packet *pkt, struct vr_forwarding_md *fmd,
 
     switch (result) {
     case MR_PROXY:
-        pkt->vp_nh->nh_arp_response(fmd->fmd_dvrf, pkt, pkt->vp_nh, fmd);
+        pkt->vp_nh->nh_arp_response(pkt, pkt->vp_nh, fmd);
         break;
     case MR_XCONNECT:
         vif_xconnect(pkt->vp_if, pkt);
@@ -379,16 +379,14 @@ vr_pkt_type(struct vr_packet *pkt, unsigned short offset,
 }
 
 int
-vr_arp_input(unsigned short vrf, struct vr_packet *pkt,
-             struct vr_forwarding_md *fmd, int arp_ingress_type)
+vr_arp_input(struct vr_packet *pkt, struct vr_forwarding_md *fmd,
+             int arp_ingress_type)
 {
     struct vr_arp sarp;
 
     /* If vlan tagged packet, we let the VM handle the ARP packets */
     if ((pkt->vp_type != VP_TYPE_ARP) || (fmd->fmd_vlan != VLAN_ID_INVALID))
         return 0;
-
-    fmd->fmd_dvrf = vrf;
 
     memcpy(&sarp, pkt_data(pkt), sizeof(struct vr_arp));
 
@@ -454,16 +452,16 @@ vr_reinject_packet(struct vr_packet *pkt, struct vr_forwarding_md *fmd)
             pkt->vp_type, pkt->vp_data, pkt->vp_network_h);
 
     if (pkt->vp_nh)
-        return pkt->vp_nh->nh_reach_nh(fmd->fmd_dvrf, pkt, pkt->vp_nh, fmd);
+        return pkt->vp_nh->nh_reach_nh(pkt, pkt->vp_nh, fmd);
 
     if (vif->vif_type == VIF_TYPE_HOST) {
-        handled = vr_l3_input(fmd->fmd_dvrf, pkt, fmd);
+        handled = vr_l3_input(pkt, fmd);
         if (!handled)
             vif_drop_pkt(vif, pkt, 1);
         return 0;
     }
 
-    return vr_bridge_input(vif->vif_router, fmd->fmd_dvrf, pkt, fmd);
+    return vr_bridge_input(vif->vif_router, pkt, fmd);
 }
 
 /*
@@ -491,10 +489,10 @@ vr_virtual_input(unsigned short vrf, struct vr_interface *vif,
         return 0;
     }
 
-    if (!vr_flow_forward(pkt->vp_if->vif_router, fmd.fmd_dvrf, pkt, &fmd))
+    if (!vr_flow_forward(pkt->vp_if->vif_router, pkt, &fmd))
         return 0;
 
-    vr_bridge_input(vif->vif_router, fmd.fmd_dvrf, pkt, &fmd);
+    vr_bridge_input(vif->vif_router, pkt, &fmd);
     return 0;
 
 }
@@ -524,9 +522,9 @@ vr_fabric_input(struct vr_interface *vif, struct vr_packet *pkt,
 
     pkt_pull(pkt, pull_len);
     if (pkt->vp_type == VP_TYPE_IP || pkt->vp_type == VP_TYPE_IP6)
-        handled = vr_l3_input(vif->vif_vrf, pkt, &fmd);
+        handled = vr_l3_input(pkt, &fmd);
     else if (pkt->vp_type == VP_TYPE_ARP)
-        handled = vr_arp_input(vif->vif_vrf, pkt, &fmd, 0);
+        handled = vr_arp_input(pkt, &fmd, 0);
 
     if (!handled) {
         pkt_push(pkt, pull_len);
@@ -537,16 +535,15 @@ vr_fabric_input(struct vr_interface *vif, struct vr_packet *pkt,
 }
 
 int
-vr_l3_input(unsigned short vrf, struct vr_packet *pkt,
-                              struct vr_forwarding_md *fmd)
+vr_l3_input(struct vr_packet *pkt, struct vr_forwarding_md *fmd)
 {
     struct vr_interface *vif = pkt->vp_if;
 
     if (pkt->vp_type == VP_TYPE_IP) {
-        vr_ip_input(vif->vif_router, vrf, pkt, fmd);
+        vr_ip_input(vif->vif_router, pkt, fmd);
         return 1;
     } else if (pkt->vp_type == VP_TYPE_IP6) {
-         vr_ip6_input(vif->vif_router, vrf, pkt, fmd);
+         vr_ip6_input(vif->vif_router, pkt, fmd);
          return 1;
     }
     return 0;

@@ -822,8 +822,9 @@ tun_rx(struct vr_interface *vif, struct vr_packet *pkt,
 
     vr_init_forwarding_md(&fmd);
     fmd.fmd_vlan = vlan_id;
+    fmd.fmd_dvrf = vif->vif_vrf;
 
-    vr_l3_input(vif->vif_vrf, pkt, &fmd);
+    vr_l3_input(pkt, &fmd);
 
     return 0;
 }

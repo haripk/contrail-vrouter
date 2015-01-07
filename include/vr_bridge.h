@@ -43,7 +43,7 @@
 
 extern char vr_bcast_mac[];
 unsigned int
-vr_bridge_input(struct vrouter *, unsigned short , struct vr_packet *, 
+vr_bridge_input(struct vrouter *, struct vr_packet *,
                             struct vr_forwarding_md *);
 extern struct vr_nexthop *(*vr_bridge_lookup)(unsigned int,
         struct vr_route_req *);

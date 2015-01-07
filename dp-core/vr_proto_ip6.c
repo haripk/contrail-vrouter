@@ -62,8 +62,8 @@ vr_icmp6_checksum(void *buffer, unsigned int bytes)
 }
 
 static bool
-vr_icmp6_input(struct vrouter *router, unsigned short vrf,
-        struct vr_packet *pkt, struct vr_forwarding_md *fmd)
+vr_icmp6_input(struct vrouter *router, struct vr_packet *pkt,
+               struct vr_forwarding_md *fmd)
 {
     bool handled = true;
     struct vr_icmp *icmph;
@@ -72,7 +72,7 @@ vr_icmp6_input(struct vrouter *router, unsigned short vrf,
     switch (icmph->icmp_type) {
 
     case VR_ICMP6_TYPE_ROUTER_SOL:
-        vr_trap(pkt, vrf, AGENT_TRAP_L3_PROTOCOLS, NULL);
+        vr_trap(pkt, fmd->fmd_dvrf, AGENT_TRAP_L3_PROTOCOLS, NULL);
         break;
 
     default:
@@ -84,8 +84,8 @@ vr_icmp6_input(struct vrouter *router, unsigned short vrf,
 }
 
 int
-vr_ip6_input(struct vrouter *router, unsigned short vrf,
-        struct vr_packet *pkt, struct vr_forwarding_md *fmd)
+vr_ip6_input(struct vrouter *router, struct vr_packet *pkt,
+             struct vr_forwarding_md *fmd)
 {
     struct vr_ip6 *ip6;
     unsigned short *t_hdr, sport, dport;
@@ -100,7 +100,7 @@ vr_ip6_input(struct vrouter *router, unsigned short vrf,
 
     switch (ip6->ip6_nxt) {
     case VR_IP_PROTO_ICMP6:
-        if (vr_icmp6_input(router, vrf, pkt, fmd))
+        if (vr_icmp6_input(router, pkt, fmd))
             return 0;
         break;
 
@@ -109,7 +109,7 @@ vr_ip6_input(struct vrouter *router, unsigned short vrf,
         dport = *(t_hdr + 1);
         if (vif_is_virtual(pkt->vp_if)) {
             if ((sport == VR_DHCP6_SPORT) && (dport == VR_DHCP6_DPORT))
-                return vr_trap(pkt, vrf, AGENT_TRAP_L3_PROTOCOLS, NULL);
+                return vr_trap(pkt, fmd->fmd_dvrf, AGENT_TRAP_L3_PROTOCOLS, NULL);
         }
         break;
 
@@ -122,12 +122,12 @@ vr_ip6_input(struct vrouter *router, unsigned short vrf,
         return 0;
     }
 
-    return vr_forward(router, vrf, pkt, fmd);
+    return vr_forward(router, pkt, fmd);
 }
 
 int
-vr_ip6_neighbor_solicitation_input(unsigned short vrf, struct vr_packet *pkt,
-                                   struct vr_forwarding_md *fmd, int pkt_src)
+vr_ip6_neighbor_solicitation_input(struct vr_packet *pkt, struct vr_forwarding_md *fmd,
+                                   int pkt_src)
 {
     struct vr_ip6 *ip6;
     struct vr_neighbor_option *nopt;
@@ -180,7 +180,7 @@ vr_ip6_neighbor_solicitation_input(unsigned short vrf, struct vr_packet *pkt,
         return 0;
     }
 
-    rt.rtr_req.rtr_vrf_id = vrf;
+    rt.rtr_req.rtr_vrf_id = fmd->fmd_dvrf;
     rt.rtr_req.rtr_family = AF_INET6;
     rt.rtr_req.rtr_prefix = (uint8_t *)&rt_prefix;
     memcpy(rt.rtr_req.rtr_prefix, icmph->icmp_data, 16);
@@ -189,7 +189,7 @@ vr_ip6_neighbor_solicitation_input(unsigned short vrf, struct vr_packet *pkt,
     rt.rtr_req.rtr_nh_id = 0;
     rt.rtr_req.rtr_label_flags = 0;
 
-    vr_inet_route_lookup(vrf, &rt);
+    vr_inet_route_lookup(fmd->fmd_dvrf, &rt);
 
     ndisc_result = vr_get_l3_stitching_info(pkt, &rt, fmd, src_mac,
                                           dst_mac, pkt_src, &drop_reason);

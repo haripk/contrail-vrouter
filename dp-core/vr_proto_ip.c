@@ -179,8 +179,8 @@ vr_ip_partial_csum(struct vr_ip *ip)
 }
 
 int
-vr_forward(struct vrouter *router, unsigned short vrf,
-        struct vr_packet *pkt, struct vr_forwarding_md *fmd)
+vr_forward(struct vrouter *router, struct vr_packet *pkt,
+           struct vr_forwarding_md *fmd)
 {
     struct vr_route_req rt;
     struct vr_nexthop *nh;
@@ -215,7 +215,7 @@ vr_forward(struct vrouter *router, unsigned short vrf,
  
     pkt->vp_ttl = ttl;
 
-    rt.rtr_req.rtr_vrf_id = vrf;
+    rt.rtr_req.rtr_vrf_id = fmd->fmd_dvrf;
     rt.rtr_req.rtr_family = family;
     if (family == AF_INET) {
         rt.rtr_req.rtr_prefix = (uint8_t*)&rt_prefix;
@@ -231,7 +231,7 @@ vr_forward(struct vrouter *router, unsigned short vrf,
     rt.rtr_req.rtr_nh_id = 0;
     rt.rtr_req.rtr_marker_size = 0;
 
-    nh = vr_inet_route_lookup(vrf, &rt);
+    nh = vr_inet_route_lookup(fmd->fmd_dvrf, &rt);
     if (rt.rtr_req.rtr_label_flags & VR_RT_LABEL_VALID_FLAG) {
         if (!fmd) {
             vr_init_forwarding_md(&rt_fmd);
@@ -291,12 +291,12 @@ vr_forward(struct vrouter *router, unsigned short vrf,
                pkt_set_network_header(pkt, pkt->vp_data);
 
                memcpy(rt.rtr_req.rtr_prefix, outer_ip6->ip6_dst, 16);
-               nh = vr_inet_route_lookup(vrf, &rt);
+               nh = vr_inet_route_lookup(fmd->fmd_dvrf, &rt);
            }
        }
     }
     
-    status =  nh_output(vrf, pkt, nh, fmd);
+    status =  nh_output(pkt, nh, fmd);
 
     return status;
 }
@@ -591,10 +591,8 @@ vr_ip_rcv(struct vrouter *router, struct vr_packet *pkt,
                                 goto drop_pkt;
                              }
                             /* Subject it to flow for Linklocal */
-                            if (!vr_flow_forward(router, fmd->fmd_dvrf,
-                                        pkt, fmd)) {
+                            if (!vr_flow_forward(router, pkt, fmd))
                                 return 0;
-                            }
                         }
                     }
                 }
@@ -638,8 +636,8 @@ drop_pkt:
 }
 
 flow_result_t
-vr_inet_flow_nat(unsigned short vrf, struct vr_flow_entry *fe,
-        struct vr_packet *pkt, struct vr_forwarding_md *fmd)
+vr_inet_flow_nat(struct vr_flow_entry *fe, struct vr_packet *pkt,
+                 struct vr_forwarding_md *fmd)
 {
     bool hdr_update = false;
     unsigned int ip_inc, inc = 0;
@@ -720,9 +718,8 @@ vr_inet_flow_nat(unsigned short vrf, struct vr_flow_entry *fe,
         vr_ip_update_csum(pkt, ip_inc, inc);
 
     if ((fe->fe_flags & VR_FLOW_FLAG_VRFT) &&
-            pkt->vp_nh && (pkt->vp_nh->nh_vrf != vrf)) {
+            pkt->vp_nh && pkt->vp_nh->nh_vrf != fmd->fmd_dvrf) {
         pkt->vp_nh = NULL;
-        fmd->fmd_dvrf = vrf;
     }
 
     return FLOW_FORWARD;
@@ -897,8 +894,8 @@ vr_inet_should_trap(struct vr_packet *pkt, struct vr_flow *flow_p)
 }
 
 flow_result_t
-vr_inet_flow_lookup(struct vrouter *router, unsigned short vrf,
-        struct vr_packet *pkt, struct vr_forwarding_md *fmd)
+vr_inet_flow_lookup(struct vrouter *router, struct vr_packet *pkt,
+                    struct vr_forwarding_md *fmd)
 {
     int ret;
     bool lookup = false;
@@ -912,7 +909,7 @@ vr_inet_flow_lookup(struct vrouter *router, unsigned short vrf,
     if (pkt->vp_flags & VP_FLAG_FLOW_SET)
         return FLOW_FORWARD;
 
-    ret = vr_inet_form_flow(router, vrf, pkt, fmd->fmd_vlan, flow_p);
+    ret = vr_inet_form_flow(router, fmd->fmd_dvrf, pkt, fmd->fmd_vlan, flow_p);
     if (ret < 0)
         return FLOW_CONSUMED;
 
@@ -936,11 +933,11 @@ vr_inet_flow_lookup(struct vrouter *router, unsigned short vrf,
 
     if (lookup) {
         if (vr_ip_fragment_head(ip)) {
-            vr_fragment_add(router, vrf, ip, flow_p->flow4_sport,
+            vr_fragment_add(router, fmd->fmd_dvrf, ip, flow_p->flow4_sport,
                     flow_p->flow4_dport);
         }
 
-        return vr_flow_lookup(router, vrf, flow_p, pkt, fmd);
+        return vr_flow_lookup(router, flow_p, pkt, fmd);
     }
 
     return FLOW_FORWARD;
@@ -948,8 +945,8 @@ vr_inet_flow_lookup(struct vrouter *router, unsigned short vrf,
 
 
 int
-vr_ip_input(struct vrouter *router, unsigned short vrf, 
-        struct vr_packet *pkt, struct vr_forwarding_md *fmd)
+vr_ip_input(struct vrouter *router, struct vr_packet *pkt,
+            struct vr_forwarding_md *fmd)
 {
     struct vr_ip *ip;
 
@@ -965,10 +962,10 @@ vr_ip_input(struct vrouter *router, unsigned short vrf,
     if (pkt->vp_flags & VP_FLAG_TO_ME)
         return vr_ip_rcv(router, pkt, fmd);
     
-    if (!vr_flow_forward(router, vrf, pkt, fmd))
+    if (!vr_flow_forward(router, pkt, fmd))
         return 0;
 
-    return vr_forward(router, fmd->fmd_dvrf, pkt, fmd);
+    return vr_forward(router, pkt, fmd);
 corrupt_pkt:
     vr_pfree(pkt, VP_DROP_INVALID_PROTOCOL);
     return 0;
