@@ -806,6 +806,7 @@ vr_flush_flow_queue(struct vrouter *router, struct vr_flow_entry *fe,
         pkt = pnode->pl_packet;
         if (!pkt)
             continue;
+
         pnode->pl_packet = NULL;
         /* 
          * this is only a security check and not a catch all check. one note
