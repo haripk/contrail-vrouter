@@ -201,6 +201,7 @@ vr_reset_flow_entry(struct vrouter *router, struct vr_flow_entry *fe,
     fe->fe_rflow = -1;
     fe->fe_action = VR_FLOW_ACTION_DROP;
     fe->fe_flags = 0;
+    fe->fe_udp_src_port = 0;
 
     return;
 }
